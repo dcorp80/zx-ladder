@@ -39,6 +39,7 @@ import {
   validateRomBytes,
   validateRomRecord,
 } from "../storage/types";
+import { WorkerMachine } from "../worker/client";
 
 export type { Theme } from "../storage/config";
 
@@ -46,7 +47,9 @@ export type { Theme } from "../storage/config";
 export interface MachineLike {
   setAudioSink?(sink?: (latch: Uint8Array, slotHz: number) => void): void;
   readonly tape?: { readonly status: string };
-  loadTape?(bytes: Uint8Array, name: string): void;
+  loadTape?(bytes: Uint8Array, name: string): void | Promise<void>;
+  readonly presentationVersion?: number;
+  dispose?(): void;
   readonly videoPreset: VideoPreset;
   readonly timing: RasterTiming;
   readonly keyboard: KeyboardDevice;
@@ -181,10 +184,17 @@ export async function createAppStore(
     VIDEO_PRESETS.find((p) => p.id === config.videoPreset) ??
     PENTAGON_VIDEO_PRESET;
   const makeMachine =
-    deps.machineFactory ?? ((options) => createMachine(options));
+    deps.machineFactory ??
+    ((options) =>
+      typeof Worker !== "undefined"
+        ? new WorkerMachine(options)
+        : createMachine(options));
   const makeHostLoop =
     deps.hostLoopFactory ??
-    ((machine, options) => createHostLoop(machine, options));
+    ((machine, options) =>
+      machine instanceof WorkerMachine
+        ? machine.createLoop(options)
+        : createHostLoop(machine, options));
 
   let disposeRoot: (() => void) | undefined;
   let store!: Store;
@@ -272,6 +282,12 @@ export async function createAppStore(
     createEffect(() => {
       audio.setPlaying(soundEnabled() && isRunning() && !freeRun());
       audio.setVolume(volume());
+      const active = machine();
+      if (active instanceof WorkerMachine) {
+        active.setAudioEnabled(soundEnabled() && isRunning() && !freeRun());
+        active.setFreeRun(freeRun());
+        active.setShowBorder(showBorder());
+      }
     });
 
     const persistConfig = () => {
@@ -297,6 +313,28 @@ export async function createAppStore(
       }
     };
 
+    let presentedMachine: MachineLike | null = null;
+    let presentedPreset: VideoPreset | undefined;
+    let presentedFrame = -1;
+    let presentedHasFrame = false;
+    const refreshPresentation = (active: MachineLike | null) => {
+      const frame = active?.presentationVersion ?? active?.frameCount ?? -1;
+      const hasFrame = active?.hasFrame ?? false;
+      const preset = active?.videoPreset;
+      if (
+        active === presentedMachine &&
+        frame === presentedFrame &&
+        hasFrame === presentedHasFrame &&
+        preset === presentedPreset
+      )
+        return;
+      presentedMachine = active;
+      presentedFrame = frame;
+      presentedHasFrame = hasFrame;
+      presentedPreset = preset;
+      setFrameVersion((version) => version + 1);
+    };
+
     const refresh = () => {
       const active = machine();
       if (!active) {
@@ -309,7 +347,7 @@ export async function createAppStore(
           width: videoPreset().width,
           height: videoPreset().height,
         });
-        setFrameVersion((version) => version + 1);
+        refreshPresentation(null);
         return;
       }
       const position = Math.max(0, Math.floor(active.framePosition));
@@ -323,7 +361,7 @@ export async function createAppStore(
         width: active.width,
         height: active.height,
       });
-      setFrameVersion((version) => version + 1);
+      refreshPresentation(active);
       setIsRunning(loop?.isRunning() ?? false);
     };
 
@@ -361,6 +399,7 @@ export async function createAppStore(
       }
       previousKeyboard?.releaseAll();
       machine()?.setAudioSink?.();
+      machine()?.dispose?.();
       audio.reset();
       next.setAudioSink?.((latch, slotHz) => audio.consumeFrame(latch, slotHz));
       setMachine(next);
@@ -498,7 +537,8 @@ export async function createAppStore(
           if (active !== machine())
             throw new Error("Machine changed; please load again.");
           audio.reset();
-          active.loadTape(file.bytes, file.name);
+          await active.loadTape(file.bytes, file.name);
+          if (active !== machine()) return;
           store.run();
           store.focusScreen();
         } catch (cause) {
@@ -678,6 +718,7 @@ export async function createAppStore(
         unsubscribeKeyboard?.();
         stopLoop();
         machine()?.setAudioSink?.();
+        machine()?.dispose?.();
         audio.dispose();
         disposeRoot?.();
       },

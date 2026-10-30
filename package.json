@@ -1,6 +1,6 @@
 {
   "name": "zx-ladder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hardware-like ZX Spectrum emulator",
   "keywords": [
     "zx-spectrum",

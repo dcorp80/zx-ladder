@@ -1,10 +1,30 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-30
 
-- Bundle the separately copyrighted 48K ROM with its redistribution notice.
+### Performance
+
+- Move CPU execution, devices, tape loading, raster capture and rendering into a
+  dedicated Web Worker, keeping the UI responsive during emulation and free run.
+- Bound execution batches and reuse display/audio transfer buffers. Reject stale
+  presentation data after reset or configuration changes and keep message queues
+  bounded.
+- Reuse canvas ImageData and skip uploads when no completed frame or display
+  setting has changed. Present only the latest available frame during catch-up.
+- Retain the synchronous adapter when Worker is unavailable. Worker failures stop
+  execution and report an error without silently replacing the machine state.
+
+### Added
+
+- Acknowledged pause, raster-slot stepping and memory inspection as foundations
+  for a future debugger; debugger UI and breakpoints are not included yet.
+- Repeatable browser profiling tool for throughput, worker/main-thread CPU
+  samples, canvas upload cost and command round trips. Performance results depend
+  on the host, browser and emulated workload; no universal speedup is claimed.
+- Bundled, separately copyrighted 48K ROM with its redistribution notice.
   First visit saves it to browser storage; existing selected ROMs take priority.
-- Add project inspirations and hardware-like simulation attribution to README.
+- Published demo link, project inspirations and hardware-like simulation
+  attribution in README.
 
 ## 0.1.0 — 2026-10-30
 

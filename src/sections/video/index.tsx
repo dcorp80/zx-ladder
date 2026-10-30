@@ -1,4 +1,4 @@
-import { type Component, createEffect, onMount } from "solid-js";
+import { type Component, createEffect } from "solid-js";
 import { VIDEO_PRESETS } from "../../devices/videoPresets";
 import { rasterTiming } from "../../machine/config";
 import { useStore } from "../../store";
@@ -9,18 +9,42 @@ const VideoCanvas: Component<{
 }> = (props) => {
   const store = useStore();
   let canvas: HTMLCanvasElement | undefined;
+  let context: CanvasRenderingContext2D | null = null;
+  let image: ImageData | undefined;
+  let paintedVersion = -1;
+  let paintedBorder: boolean | undefined;
+  let paintedMachine: ReturnType<typeof store.machine>;
 
   const paint = () => {
     const element = canvas;
     const active = store.machine();
+    const version = store.frameVersion();
+    const border = store.showBorder();
     if (!element || !active?.hasFrame) return;
+    if (
+      paintedMachine === active &&
+      paintedVersion === version &&
+      paintedBorder === border &&
+      image?.width === active.width &&
+      image?.height === active.height
+    )
+      return;
     try {
-      const context = element.getContext("2d");
+      context ??= element.getContext("2d");
       if (!context) return;
-      const rgba = active.renderFrame(store.showBorder());
-      const image = context.createImageData(active.width, active.height);
+      const rgba = active.renderFrame(border);
+      // Allocate once per canvas/raster size, never once per frame.
+      if (
+        !image ||
+        image.width !== active.width ||
+        image.height !== active.height
+      )
+        image = context.createImageData(active.width, active.height);
       image.data.set(rgba);
       context.putImageData(image, 0, 0);
+      paintedMachine = active;
+      paintedVersion = version;
+      paintedBorder = border;
     } catch (cause) {
       // A missing canvas context in jsdom is harmless. Keep browser rendering
       // failures out of Solid's effect queue so controls remain usable.
@@ -36,7 +60,6 @@ const VideoCanvas: Component<{
     store.machine();
     paint();
   });
-  onMount(paint);
 
   return (
     <div class="machine-canvas-wrap">

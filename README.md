@@ -3,7 +3,9 @@
 Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 `@dcorp80/z80cpu` core.
 
-Version **0.1.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+**[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
+
+Version **0.2.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open http://localhost:3000.
@@ -182,7 +184,7 @@ The workflow in `.github/workflows/pages.yml` uses Node 24 and `npm ci`, then
 runs lint, typecheck, tests, and the production build for pull requests and
 pushes to `main`. Deployment follows Explorer's release-tag/manual pattern:
 
-- Push a `ladder-v*` release tag (for example `ladder-v0.1.0`, after updating
+- Push a `ladder-v*` release tag (for example `ladder-v0.2.0`, after updating
   `package.json` and its lockfile) to publish that revision.
 - Alternatively, run **CI and deploy Ladder to GitHub Pages** manually from
   GitHub Actions and select the revision to publish.
@@ -213,6 +215,31 @@ copyrighted material but retain that copyright.”
 The [ROM notice](public/roms/NOTICE.txt) includes provenance and a link to the
 [Amstrad permission statement preserved by Debian](https://sources.debian.org/src/fbzx/3.1.0-1/AMSTRAD/).
 The notice is also shipped alongside the ROM on the deployed site.
+
+## Worker execution
+
+Browsers with Web Worker support run CPU, memory, devices, raster capture and
+RGBA rendering in a dedicated module worker. The UI sends ordered commands and
+receives status snapshots and completed frames. Without Worker support, the
+synchronous adapter remains available.
+
+Execution yields between bounded 4 ms batches. Free run uses a MessageChannel
+scheduler to yield without nested-timer clamping. Normal mode follows elapsed
+wall time; tab visibility pauses execution without losing run intent. Run,
+Pause, frame stepping, reset, turbo, presets, keyboard and tape loading remain
+available. Worker failures stop execution and display an error; Cold boot can
+create a fresh worker.
+
+One reusable display buffer is transferred at a time; missed presentation frames
+are skipped while emulation continues. Audio capture uses a three-buffer pool.
+The UI retains its reusable canvas ImageData, browser storage and AudioContext;
+beeper resampling remains in the audio adapter, and playback stays in the
+AudioWorklet. No SharedArrayBuffer or cross-origin-isolation headers are needed.
+
+The worker adapter exposes acknowledged pause, raster-slot stepping and coherent
+memory inspection. CPU instruction/half-cycle stepping, breakpoints and a
+visible debugger are future work. Status displayed while running is a snapshot,
+not direct access to live worker memory.
 
 ## Acknowledgments
 

@@ -24,7 +24,13 @@ export class KeyboardDevice implements Device {
   hostCapsLock: boolean | undefined;
   desiredCapsLock: boolean | undefined;
   romCapsLock: boolean | undefined;
-  capsSyncActive = false;
+  private capsActive = false;
+  get capsSyncActive(): boolean {
+    return this.capsActive;
+  }
+  set capsSyncActive(value: boolean) {
+    this.capsActive = value;
+  }
   private hiddenCapsLock = false;
   observeHostCapsLock(state: boolean): void {
     if (state !== this.hostCapsLock) {
@@ -137,7 +143,7 @@ export class KeyboardDevice implements Device {
       this.listeners.delete(listener);
     };
   }
-  private notify(): void {
+  protected notify(): void {
     for (const listener of this.listeners) listener();
   }
 }
