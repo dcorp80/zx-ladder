@@ -1,0 +1,44 @@
+{
+  "name": "zx-ladder",
+  "version": "0.1.0",
+  "description": "Hardware-like ZX Spectrum emulator",
+  "keywords": [
+    "zx-spectrum",
+    "z80",
+    "emulator",
+    "hardware-emulation",
+    "retrocomputing",
+    "typescript",
+    "javascript",
+    "browser"
+  ],
+  "license": "GPL-3.0",
+  "author": "dcorp80",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview",
+    "test": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check",
+    "lint:fix": "biome check --write"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "@solidjs/testing-library": "^0.8.10",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@types/node": "^26.6.5",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.3",
+    "vite-plugin-solid": "2.11.12",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "@dcorp80/z80cpu": "^0.2.1",
+    "solid-js": "^1.9.14"
+  }
+}

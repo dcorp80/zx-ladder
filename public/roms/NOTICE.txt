@@ -1,0 +1,21 @@
+ZX Spectrum 48K firmware: 48.rom (16,384 bytes)
+
+Original firmware copyright: Sinclair Research Ltd.
+Amstrad's permission statement covers the Sinclair Spectrum firmware it acquired.
+This ROM retains its original copyright messages and is distributed separately
+from ZX Ladder's GPLv3 source license; it is not public-domain or GPL firmware.
+
+Amstrad have kindly given their permission for the redistribution of their
+copyrighted material but retain that copyright.
+
+The published permission allows inclusion with emulators while retaining the
+copyright messages. No charge is made for the ROM itself.
+Permission statement preserved in FBZX's AMSTRAD notice:
+https://sources.debian.org/src/fbzx/3.1.0-1/AMSTRAD/
+Original message link recorded there:
+http://groups.google.com/group/comp.sys.amstrad.8bit/msg/c092cc4d4943131e
+
+Provenance: copied byte-for-byte from Bedazzle/ZX-M8XXX, roms/48.rom:
+https://github.com/Bedazzle/ZX-M8XXX/blob/main/roms/48.rom
+Only this 48K firmware is bundled. No permission for unrelated ROMs or games
+is implied by this notice.
