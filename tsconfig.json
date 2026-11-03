@@ -4,6 +4,7 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js",
     "target": "ESNext",
+    "skipLibCheck": true,
 
     // Modules
     "allowSyntheticDefaultImports": true,

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1 — 2026-11-03
+
+### Maintenance
+
+- Updated dependencies to their latest compatible versions including latest CPU
+  core fixes.
+
 ## 0.2.0 — 2026-10-30
 
 ### Performance
@@ -54,4 +61,4 @@ Initial release of ZX Ladder.
 - Late INT is experimental and disabled in the UI for both presets.
 - No memory contention, 128K paging, disk controller, snapshots, AY sound,
   or tape pulse playback. TZX support covers the documented flash-load subset.
-- ROM and tape images are not bundled.
+- tape images are not bundled.
