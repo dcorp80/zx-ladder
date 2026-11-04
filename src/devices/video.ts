@@ -24,13 +24,18 @@ export function captureAttribute(
     (attribute & 0x80 && flashCount & (1 << flashBit) ? 0x80 : 0)
   );
 }
+export interface InterruptInterval {
+  start: number;
+  endExclusive: number;
+}
 export interface CapturePlanes {
   pixels: Uint8Array;
   attributes: Uint8Array;
   /** Full FE latch sampled each 7 MHz slot; low three bits are border. */
   border: Uint8Array;
-  /** Actual active-low INT state, sampled at each raster slot. */
-  interrupt: Uint8Array;
+  /** Fixed storage: carry-in plus normal/late trigger intervals. */
+  interrupts: InterruptInterval[];
+  interruptCount: number;
 }
 export interface RasterVideo extends Device {
   readonly hPositions: Uint16Array;
@@ -41,6 +46,7 @@ export interface RasterVideo extends Device {
   fetch(bus: DeviceBus, symbolIndex: number): void;
   cpuAccess(): void;
   captureBorder(position: number, latch: number): void;
+  /** Called only when sampled INT changes; frame clipping is internal. */
   captureInterrupt(position: number, active: boolean): void;
   finishFrame(): void;
   render(showBorder?: boolean): Uint8ClampedArray;
@@ -71,6 +77,7 @@ export class TimedVideo implements RasterVideo {
   private front: CapturePlanes;
   private readonly rgba: Uint8ClampedArray;
   private renderDirty = true;
+  private interruptActive = false;
   private renderedBorder = true;
 
   constructor(readonly preset: VideoPreset) {
@@ -87,7 +94,11 @@ export class TimedVideo implements RasterVideo {
       pixels: new Uint8Array(symbols),
       attributes: new Uint8Array(symbols),
       border: new Uint8Array(pixelsPerFrame),
-      interrupt: new Uint8Array(pixelsPerFrame),
+      interrupts: Array.from({ length: 3 }, () => ({
+        start: 0,
+        endExclusive: 0,
+      })),
+      interruptCount: 0,
     });
     this.back = planes();
     this.front = planes();
@@ -161,12 +172,25 @@ export class TimedVideo implements RasterVideo {
     this.back.border[position] = latch;
   }
   captureInterrupt(position: number, active: boolean): void {
-    this.back.interrupt[position] = active ? 1 : 0;
+    this.interruptActive = active;
+    if (active) {
+      const range = this.back.interrupts[this.back.interruptCount++];
+      if (!range) throw new Error("Too many INT intervals in one raster frame");
+      range.start = position;
+      range.endExclusive = this.preset.pixelsPerFrame;
+    } else if (this.back.interruptCount > 0) {
+      const range = this.back.interrupts[this.back.interruptCount - 1];
+      range.endExclusive = position;
+      if (range.start === position) this.back.interruptCount--;
+    }
   }
   finishFrame(): void {
     const old = this.front;
     this.front = this.back;
     this.back = old;
+    this.back.interruptCount = 0;
+    // A pulse crossing frame zero is clipped into each frame independently.
+    if (this.interruptActive) this.captureInterrupt(0, true);
     this.hasFrame = true;
     this.renderDirty = true;
   }
@@ -198,13 +222,17 @@ export class TimedVideo implements RasterVideo {
         this.rgba[offset + 1] = color & 4 ? level : 0;
         this.rgba[offset + 2] = color & 1 ? level : 0;
       }
-      // Diagnostic overlay remains visible through border, blanking and sync.
-      if (this.front.interrupt[c]) {
+      this.rgba[offset + 3] = 255;
+    }
+    // Overlay only captured intervals, including pixels in blanking and sync.
+    for (let i = 0; i < this.front.interruptCount; i++) {
+      const { start, endExclusive } = this.front.interrupts[i];
+      for (let c = start; c < endExclusive; c++) {
+        const offset = c * 4;
         this.rgba[offset] = 255;
         this.rgba[offset + 1] = 96;
         this.rgba[offset + 2] = 0;
       }
-      this.rgba[offset + 3] = 255;
     }
     this.renderDirty = false;
     this.renderedBorder = showBorder;

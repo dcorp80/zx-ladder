@@ -1,4 +1,5 @@
 import type { Component } from "solid-js";
+import { CPU_LOAD_SAMPLE_FRAMES } from "../../machine/config";
 import { useStore } from "../../store";
 import { SectionFrame } from "../frame";
 import { ResetButton } from "./resetButton";
@@ -85,6 +86,16 @@ export const MachineSection: Component = () => {
           <div>
             <dt>Ticks</dt>
             <dd>{store.status().ticks.toLocaleString()}</dd>
+          </div>
+          <div
+            title={`Emulated CPU activity: percentage of 7 MHz slots outside HALT averaged over ${CPU_LOAD_SAMPLE_FRAMES} frames; not host CPU usage.}`}
+          >
+            <dt>CPU load</dt>
+            <dd>
+              {store.status().cpuLoad === null
+                ? "—"
+                : `${store.status().cpuLoad?.toFixed(1)}%`}
+            </dd>
           </div>
           <div>
             <dt>Position</dt>

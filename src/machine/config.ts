@@ -1,5 +1,8 @@
 import type { VideoPreset } from "../devices/videoPresets";
 
+// Match the FPS sampling span without coupling the core to the host scheduler.
+export const CPU_LOAD_SAMPLE_FRAMES = 16;
+
 /** Fixed initial machine: uncontended 48K, one shared memory slot per pixel. */
 export const MACHINE_CONFIG = Object.freeze({
   id: "uncontended-48k",

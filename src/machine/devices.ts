@@ -4,6 +4,16 @@ export interface MemoryClaim {
   read(address: number): number;
   write(address: number, value: number): void;
 }
+/** Conditional overlays; callbacks may inspect device/CPU state through closures.
+ * Returning undefined (read) or false (write) passes the access through.
+ */
+export interface MemoryInterceptor {
+  start: number;
+  end: number;
+  priority?: number;
+  read?(address: number): number | undefined;
+  write?(address: number, value: number): boolean;
+}
 export interface IoClaim {
   lowMask: number;
   lowValue: number;
@@ -29,6 +39,7 @@ export interface ClockHook {
 export interface Device {
   readonly id: string;
   readonly memory?: readonly MemoryClaim[];
+  readonly memoryInterceptors?: readonly MemoryInterceptor[];
   readonly io?: readonly IoClaim[];
   readonly clock?: readonly ClockHook[];
 }
@@ -39,6 +50,9 @@ export class DeviceBus {
     { length: 256 },
     () => [],
   );
+  private readonly directMemory: (MemoryClaim | undefined)[] = new Array(256);
+  private readonly interceptors: (MemoryInterceptor[] | undefined)[] =
+    new Array(256);
   private readonly ports: IoClaim[][] = Array.from({ length: 256 }, () => []);
   readonly clocks: ClockHook[] = [];
 
@@ -62,6 +76,27 @@ export class DeviceBus {
         ranges.push(m);
         for (let page = m.start >>> 8; page <= m.end >>> 8; page++)
           this.memoryPages[page].push(m);
+      }
+      for (const interceptor of d.memoryInterceptors ?? []) {
+        if (
+          !Number.isInteger(interceptor.start) ||
+          !Number.isInteger(interceptor.end) ||
+          interceptor.start < 0 ||
+          interceptor.end > 0xffff ||
+          interceptor.start > interceptor.end
+        )
+          throw new RangeError("Invalid memory interceptor range");
+        if (!Number.isSafeInteger(interceptor.priority ?? 0))
+          throw new RangeError("Invalid memory interceptor priority");
+        for (
+          let page = interceptor.start >>> 8;
+          page <= interceptor.end >>> 8;
+          page++
+        ) {
+          const bucket = this.interceptors[page] ?? [];
+          this.interceptors[page] = bucket;
+          bucket.push(interceptor);
+        }
       }
       for (const port of d.io ?? []) {
         for (const n of [
@@ -119,16 +154,65 @@ export class DeviceBus {
         this.clocks.push(hook);
       }
     }
+    for (let page = 0; page < 256; page++) {
+      const claims = this.memoryPages[page];
+      const claim = claims[0];
+      if (
+        !this.interceptors[page] &&
+        claims.length === 1 &&
+        claim.start <= page * 256 &&
+        claim.end >= page * 256 + 255
+      )
+        this.directMemory[page] = claim;
+      this.interceptors[page]?.sort(
+        (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
+      );
+    }
     for (const bucket of this.ports)
       bucket.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
   }
   readMemory(address: number): number {
-    for (const m of this.memoryPages[address >>> 8])
+    const page = address >>> 8;
+    const direct = this.directMemory[page];
+    if (direct) return direct.read(address) & 255;
+    return this.readInterceptedMemory(address, page);
+  }
+  private readInterceptedMemory(address: number, page: number): number {
+    const interceptors = this.interceptors[page];
+    if (interceptors) {
+      for (const interceptor of interceptors) {
+        if (address < interceptor.start || address > interceptor.end) continue;
+        const value = interceptor.read?.(address);
+        if (value !== undefined) return value & 255;
+      }
+    }
+    for (const m of this.memoryPages[page])
       if (address >= m.start && address <= m.end) return m.read(address) & 255;
     return 255;
   }
   writeMemory(address: number, value: number): void {
-    for (const m of this.memoryPages[address >>> 8])
+    const page = address >>> 8;
+    value &= 255;
+    const direct = this.directMemory[page];
+    if (direct) {
+      direct.write(address, value);
+      return;
+    }
+    this.writeInterceptedMemory(address, value, page);
+  }
+  private writeInterceptedMemory(
+    address: number,
+    value: number,
+    page: number,
+  ): void {
+    const interceptors = this.interceptors[page];
+    if (interceptors) {
+      for (const interceptor of interceptors) {
+        if (address < interceptor.start || address > interceptor.end) continue;
+        if (interceptor.write?.(address, value)) return;
+      }
+    }
+    for (const m of this.memoryPages[page])
       if (address >= m.start && address <= m.end) {
         m.write(address, value & 255);
         return;

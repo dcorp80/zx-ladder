@@ -45,10 +45,12 @@ export type ToWorker =
 export interface MachineState {
   frameCount: number;
   framePosition: number;
-  ticks: number;
+  /** Slots since the previous emitted snapshot, including obsolete epochs. */
+  tickDelta: number;
   counters: number[];
   pc: number;
   cpu7: boolean;
+  cpuLoad: number | null;
   tape: string;
   keys: SpectrumKey[];
   romCapsLock: boolean | undefined;

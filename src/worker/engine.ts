@@ -1,10 +1,12 @@
 import { KEY_ROWS } from "../devices/keyboard";
-import { Counter } from "../machine/counters";
 import { createMachine, type Machine } from "../machine/machine";
 import { createHostLoop, type HostLoop } from "../runloop/hostLoop";
 import type { FromWorker, MachineState, Request, ToWorker } from "./protocol";
 
 const ALL_KEYS = KEY_ROWS.flat();
+export const WORKER_EXECUTION_BUDGET_MS = 4;
+// Scheduling delay is independent of the amount of work allowed per batch.
+const WORKER_NORMAL_DELAY_MS = 4;
 
 /** Owns the complete machine. No DOM, UI store, or browser storage access. */
 export class WorkerEngine {
@@ -44,10 +46,11 @@ export class WorkerEngine {
     return {
       frameCount: m.frameCount,
       framePosition: m.framePosition,
-      ticks: m.counters[Counter.pixels],
+      tickDelta: m.takeElapsedTicks(),
       counters: Array.from(m.counters),
       pc: m.cpu.regs.pc,
       cpu7: m.cpu7,
+      cpuLoad: m.cpuLoad,
       tape: m.tape.status,
       keys: ALL_KEYS.filter((key) => m.keyboard.isPressed(key)),
       romCapsLock: m.keyboard.romCapsLock,
@@ -58,7 +61,7 @@ export class WorkerEngine {
     const m = this.machine;
     if (!m) return;
     const now = performance.now();
-    if (!force && (now - this.lastUpdate < 20 || !this.frameBuffer)) return;
+    if (!force && now - this.lastUpdate < 20) return;
     this.lastUpdate = now;
     const state = this.state();
     if (
@@ -81,11 +84,16 @@ export class WorkerEngine {
     if (!this.machine) throw new Error("Worker machine is not initialized");
     this.loop = createHostLoop(this.machine, {
       freeRun: () => this.freeRun,
-      workBudgetMs: 4,
+      workBudgetMs: WORKER_EXECUTION_BUDGET_MS,
       // Return to the worker task queue between batches so commands can run.
       schedule: (callback) => {
         if (!this.freeRun)
-          return { timer: setTimeout(() => callback(performance.now()), 4) };
+          return {
+            timer: setTimeout(
+              () => callback(performance.now()),
+              WORKER_NORMAL_DELAY_MS,
+            ),
+          };
         // A task, not a microtask: input messages can interleave. Avoid the
         // nested-timer 4 ms clamp limiting free-run to roughly half a core.
         if (!this.taskChannel) {

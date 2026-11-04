@@ -12,7 +12,12 @@ import {
 import { parseTape } from "../files/tape";
 import { Spectrum48CapsLock } from "../rom/spectrum48CapsLock";
 import { Spectrum48Tape } from "../rom/spectrum48Tape";
-import { MACHINE_CONFIG, type RasterTiming, rasterTiming } from "./config";
+import {
+  CPU_LOAD_SAMPLE_FRAMES,
+  MACHINE_CONFIG,
+  type RasterTiming,
+  rasterTiming,
+} from "./config";
 import { Counter, createCounters } from "./counters";
 import { type ClockContext, type Device, DeviceBus } from "./devices";
 
@@ -46,10 +51,22 @@ export class Machine implements ClockContext {
   bus: DeviceBus;
   readonly counters = createCounters();
   framePosition = 0;
+  private pendingTicks = 0;
+  /** Reporting delta, accumulated once per execution chunk, never per slot. */
+  takeElapsedTicks(): number {
+    const ticks = this.pendingTicks;
+    this.pendingTicks = 0;
+    return ticks;
+  }
   private turbo: boolean;
   private lateInterrupt: boolean;
-  private interruptX = 0;
-  private interruptLine = 0;
+  private interruptPosition = 0;
+  private flashPosition = 0;
+  private sampledInterrupt = false;
+  private haltedSlots = 0;
+  private loadSampleFrames = 0;
+  /** Active fraction over the last completed sampling window, in percent. */
+  cpuLoad: number | null = null;
   private requestedTurbo: boolean;
   private resetHeld = false;
   private resetHalfCycles = 0;
@@ -61,11 +78,6 @@ export class Machine implements ClockContext {
   setAudioSink(sink?: (latch: Uint8Array, slotHz: number) => void): void {
     this.audioSink = sink;
   }
-  private x = 0;
-  private y = 0;
-  private symbol = 0;
-  private pixel = 0;
-  private symbolIndex = 0;
   private readonly extraDevices: readonly Device[];
   private readonly videoFactory: (preset: VideoPreset) => RasterVideo;
   private clocks: {
@@ -142,13 +154,11 @@ export class Machine implements ClockContext {
     this.updateInterruptPosition();
     this.bus = bus;
     this.clocks = clocks;
-    this.x =
-      this.y =
-      this.symbol =
-      this.pixel =
-      this.symbolIndex =
-      this.framePosition =
-        0;
+    this.framePosition = 0;
+    this.sampledInterrupt = false;
+    this.haltedSlots = 0;
+    this.loadSampleFrames = 0;
+    this.cpuLoad = null;
     this.interruptRemaining = 0;
     this.cpu.bus.nINT = 1;
     this.counters[Counter.h] = preset.hOrigin;
@@ -168,13 +178,25 @@ export class Machine implements ClockContext {
     this.lateInterrupt = enabled;
     this.updateInterruptPosition();
   }
+  /** Resolve counter wiring once, including V advance within a raster line. */
+  private positionForCounter(line: number, x: number): number {
+    const { width, height } = this.videoPreset;
+    for (let y = 0; y < height; y++) {
+      const position = y * width + x;
+      if (this.video.vPositions[position >>> 3] === line) return position;
+    }
+    throw new Error("Video counter does not contain the requested trigger");
+  }
   private updateInterruptPosition(): void {
     const p = this.videoPreset;
-    this.interruptLine = this.lateInterrupt
-      ? p.lateInterruptLine
-      : p.interruptLine;
+    const line = this.lateInterrupt ? p.lateInterruptLine : p.interruptLine;
     const h = this.lateInterrupt ? p.lateInterruptH : p.vAdvance;
-    this.interruptX = ((h - p.hOrigin + p.width / 2) % (p.width / 2)) * 2;
+    const x = ((h - p.hOrigin + p.width / 2) % (p.width / 2)) * 2;
+    this.interruptPosition = this.positionForCounter(line, x);
+    this.flashPosition = this.positionForCounter(
+      p.flashLine,
+      this.video.advanceX,
+    );
   }
   setTurbo(enabled: boolean): void {
     this.requestedTurbo = enabled;
@@ -231,90 +253,97 @@ export class Machine implements ClockContext {
     this.counters[Counter.cpuEdges]++;
   }
 
-  /** Resumable folded loops. Each inner slot is exactly one 7 MHz period. */
+  /** One resumable loop; each iteration is exactly one 7 MHz raster slot. */
   advancePixels(count: number): number {
     if (!Number.isSafeInteger(count) || count < 0)
       throw new RangeError("Pixel count must be a nonnegative safe integer");
     const framesBefore = this.frameCount;
-    const symbolsPerLine = this.width / 8;
-    while (count > 0) {
-      for (; this.y < this.height; this.y++) {
-        for (; this.symbol < symbolsPerLine; this.symbol++) {
-          for (; this.pixel < 8; this.pixel++) {
-            if (count === 0) return this.frameCount - framesBefore;
-            this.x = this.symbol * 8 + this.pixel;
-            this.symbolIndex = this.y * symbolsPerLine + this.symbol;
-            const h = this.video.hPositions[this.x];
-            const v = this.video.vPositions[this.symbolIndex];
-            this.counters[Counter.h] = h;
-            this.counters[Counter.v] = v;
-            if (this.x === this.interruptX && v === this.interruptLine) {
-              this.interruptRemaining = this.width;
-            }
-            if (
-              this.x === this.video.advanceX &&
-              v === this.videoPreset.flashLine
-            )
-              this.counters[Counter.flash]++;
-            this.cpu.bus.nINT = this.interruptRemaining > 0 ? 0 : 1;
-            for (const hook of this.clocks) {
-              if (hook.remaining === 0) {
-                hook.tick(this);
-                hook.remaining = hook.divider;
-              }
-              hook.remaining--;
-            }
-
-            const b = this.cpu.bus;
-            const request =
-              this.previousMreq === 1 && b.nMREQ === 0 && b.nRFSH === 1;
-            if (b.nMREQ !== 0) this.readActive = false;
-            if (request && b.addr !== undefined) {
-              if (b.nRD === 0) {
-                if (b.addr === 0x10a8 && b.nM1 === 0)
-                  this.capsLock.keyboardPoll();
-                this.readValue =
-                  this.tape.read(b.addr, b.nM1 === 0, this.cpu) ??
-                  this.bus.readMemory(b.addr);
-                this.readActive = true;
-                b.data = this.readValue;
-              } else if (b.nRD === 1 && b.data !== undefined) {
-                this.bus.writeMemory(b.addr, b.data);
-                this.readActive = false;
-              }
-              this.video.cpuAccess();
-            } else {
-              this.video.fetch(this.bus, this.symbolIndex);
-            }
-            // Observe before the CPU edges: their request is serviced next slot.
-            this.previousMreq = b.nMREQ;
-            if (this.turbo) this.cpuEdge();
-            this.resolveInputs();
-            this.video.captureBorder(this.framePosition, this.border.value);
-            this.video.captureInterrupt(
-              this.framePosition,
-              this.cpu.bus.nINT === 0,
-            );
-            this.cpuEdge();
-            if (this.interruptRemaining > 0) this.interruptRemaining--;
-            this.counters[Counter.pixels]++;
-            this.framePosition++;
-            count--;
+    // Configuration is stable for this synchronous execution chunk. Device
+    // hooks still observe live counters, frame position and CPU pin values.
+    const video = this.video;
+    const bus = this.bus;
+    const counters = this.counters;
+    const clocks = this.clocks;
+    const { width, pixelsPerFrame } = this.videoPreset;
+    const { hPositions, vPositions } = video;
+    const interruptPosition = this.interruptPosition;
+    const flashPosition = this.flashPosition;
+    const requested = count;
+    let position = this.framePosition;
+    try {
+      while (count > 0) {
+        const symbolIndex = position >>> 3;
+        counters[Counter.h] = hPositions[position % width];
+        counters[Counter.v] = vPositions[symbolIndex];
+        if (position === interruptPosition) this.interruptRemaining = width;
+        if (position === flashPosition) counters[Counter.flash]++;
+        this.cpu.bus.nINT = this.interruptRemaining > 0 ? 0 : 1;
+        for (const hook of clocks) {
+          if (hook.remaining === 0) {
+            hook.tick(this);
+            hook.remaining = hook.divider;
           }
-          this.pixel = 0;
+          hook.remaining--;
         }
-        this.symbol = 0;
+
+        const b = this.cpu.bus;
+        const request =
+          this.previousMreq === 1 && b.nMREQ === 0 && b.nRFSH === 1;
+        if (b.nMREQ !== 0) this.readActive = false;
+        if (request && b.addr !== undefined) {
+          if (b.nRD === 0) {
+            if (b.addr === 0x10a8 && b.nM1 === 0) this.capsLock.keyboardPoll();
+            this.readValue =
+              this.tape.read(b.addr, b.nM1 === 0, this.cpu) ??
+              bus.readMemory(b.addr);
+            this.readActive = true;
+            b.data = this.readValue;
+          } else if (b.nRD === 1 && b.data !== undefined) {
+            bus.writeMemory(b.addr, b.data);
+            this.readActive = false;
+          }
+          video.cpuAccess();
+        } else video.fetch(bus, symbolIndex);
+
+        // Observe before the CPU edges: their request is serviced next slot.
+        this.previousMreq = b.nMREQ;
+        if (this.turbo) this.cpuEdge();
+        this.resolveInputs();
+        video.captureBorder(position, this.border.value);
+        // Retain the former per-pixel sampling phase, including turbo ACKs.
+        const interrupt = this.cpu.bus.nINT === 0;
+        if (interrupt !== this.sampledInterrupt) {
+          video.captureInterrupt(position, interrupt);
+          this.sampledInterrupt = interrupt;
+        }
+        if (this.cpu.bus.nHALT === 0) this.haltedSlots++;
+        this.cpuEdge();
+        if (this.interruptRemaining > 0) this.interruptRemaining--;
+        position++;
+        this.framePosition = position;
+        count--;
+        if (position === pixelsPerFrame) {
+          position = this.framePosition = 0;
+          if (++this.loadSampleFrames === CPU_LOAD_SAMPLE_FRAMES) {
+            this.cpuLoad =
+              100 *
+              (1 -
+                this.haltedSlots / (pixelsPerFrame * CPU_LOAD_SAMPLE_FRAMES));
+            this.haltedSlots = 0;
+            this.loadSampleFrames = 0;
+          }
+          video.finishFrame();
+          this.audioSink?.(video.completed.border, this.config.slotHz);
+          this.keyboard.advanceFrame();
+          this.tape.frame();
+          if (this.cpu.bus.nRESET !== 0) this.capsLock.advanceFrame();
+          counters[Counter.frames]++;
+        }
       }
-      this.y = 0;
-      this.framePosition = 0;
-      this.video.finishFrame();
-      this.audioSink?.(this.video.completed.border, this.config.slotHz);
-      this.keyboard.advanceFrame();
-      this.tape.frame();
-      if (this.cpu.bus.nRESET !== 0) this.capsLock.advanceFrame();
-      this.counters[Counter.frames]++;
+      return this.frameCount - framesBefore;
+    } finally {
+      this.pendingTicks += requested - count;
     }
-    return this.frameCount - framesBefore;
   }
   advanceFrame(): void {
     this.advancePixels(this.videoPreset.pixelsPerFrame - this.framePosition);

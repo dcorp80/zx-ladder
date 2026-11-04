@@ -16,6 +16,7 @@ try {
   });
   await page.addInitScript(() => {
     window.measure = {
+      ticks: 0,
       paints: [],
       gaps: [],
       messages: 0,
@@ -34,7 +35,10 @@ try {
         super(...args);
         window.emuWorker = this;
         this.addEventListener("message", ({ data }) => {
-          if (data.state) window.measure.state = data.state;
+          if (data.state) {
+            window.measure.state = data.state;
+            window.measure.ticks += data.state.tickDelta;
+          }
           if (data.type === "frame") window.measure.messages++;
           if (data.type === "audio") window.measure.audio++;
         });
@@ -135,7 +139,7 @@ try {
       window.measure.gaps = [];
       window.measure.messages = 0;
       window.measure.audio = 0;
-      return { time: performance.now(), ticks: window.measure.state.ticks };
+      return { time: performance.now(), ticks: window.measure.ticks };
     });
     if (profile) {
       await worker("Profiler.start");
@@ -163,7 +167,7 @@ try {
     const result = {
       name,
       profile,
-      slotMHz: (end.state.ticks - start.ticks) / (end.time - start.time) / 1000,
+      slotMHz: (end.ticks - start.ticks) / (end.time - start.time) / 1000,
       paintCount: end.paints.length,
       paintP50: percentile(end.paints, 0.5),
       paintP95: percentile(end.paints, 0.95),

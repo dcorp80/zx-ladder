@@ -11,6 +11,7 @@ import {
   LVIV_VIDEO_PRESET,
   PENTAGON_VIDEO_PRESET,
 } from "../devices/videoPresets";
+import { CPU_LOAD_SAMPLE_FRAMES } from "./config";
 import { Counter } from "./counters";
 import { DeviceBus } from "./devices";
 import { createMachine } from "./machine";
@@ -143,7 +144,7 @@ it("uses a 448-pixel INT pulse at the mapped V=240 edge, clearing early on ackno
   expect(full.cpu.bus.nINT).toBe(1);
 });
 
-it("keeps chunked folded loops identical to uninterrupted frames", () => {
+it("keeps chunked raster execution identical to uninterrupted frames", () => {
   const image = rom(0x21, 0, 0x80, 0x34, 0xc3, 3, 0);
   const a = createMachine({ rom: image, cpu7: true });
   const b = createMachine({ rom: image, cpu7: true });
@@ -361,7 +362,7 @@ it.each([false, true])(
     expect(m.counters[Counter.cpuEdges] - before).toBe(
       (initial ? 2 : 1) + (initial ? 10 : 20),
     );
-    expect(m.counters[Counter.pixels]).toBe(31);
+    expect(m.takeElapsedTicks()).toBe(31);
   },
 );
 
@@ -455,7 +456,12 @@ it.each([
     const m = createMachine({ rom: rom(), videoPreset: preset });
     m.cpu.clockEdge = () => {};
     m.advanceFrame();
-    const capture = m.video.completed.interrupt;
+    const capture = new Uint8Array(preset.pixelsPerFrame);
+    const completed = m.video.completed;
+    for (let i = 0; i < completed.interruptCount; i++) {
+      const { start, endExclusive } = completed.interrupts[i];
+      capture.fill(1, start, endExclusive);
+    }
     expect(capture.reduce((sum, v) => sum + v, 0)).toBe(448);
     expect(capture[start - 1]).toBe(0);
     expect(capture[start]).toBe(1);
@@ -472,13 +478,124 @@ it.each([
     m.advancePixels(1);
     Object.assign(m.cpu.bus, { nIORQ: 1, nM1: 1 });
     m.advanceFrame();
-    expect(m.video.completed.interrupt.reduce((sum, v) => sum + v, 0)).toBe(12);
-    expect(m.video.completed.interrupt[start + 11]).toBe(1);
-    expect(m.video.completed.interrupt[start + 12]).toBe(0);
+    expect(m.video.completed.interruptCount).toBe(1);
+    expect(m.video.completed.interrupts[0]).toEqual({
+      start,
+      endExclusive: start + 12,
+    });
+    const rgba = m.renderFrame();
+    expect([...rgba.slice((start + 11) * 4, (start + 12) * 4)]).toEqual([
+      255, 96, 0, 255,
+    ]);
+    expect([...rgba.slice((start + 12) * 4, (start + 13) * 4)]).not.toEqual([
+      255, 96, 0, 255,
+    ]);
     // Reused back buffers cannot retain the longer pulse from two frames ago.
     m.advancePixels(start);
     Object.assign(m.cpu.bus, { nIORQ: 0, nM1: 0 });
     m.advanceFrame();
-    expect(m.video.completed.interrupt.some(Boolean)).toBe(false);
+    expect(m.video.completed.interruptCount).toBe(0);
+  },
+);
+
+it("clips carried INT pulses into separate intervals at both ends of a frame", () => {
+  const preset = {
+    ...PENTAGON_VIDEO_PRESET,
+    interruptLine: PENTAGON_VIDEO_PRESET.vOrigin,
+  };
+  const m = createMachine({ rom: rom(), videoPreset: preset });
+  m.cpu.clockEdge = () => {};
+  const n = preset.pixelsPerFrame;
+  m.advanceFrame();
+  expect(m.video.completed.interruptCount).toBe(1);
+  expect(m.video.completed.interrupts[0]).toEqual({
+    start: n - 8,
+    endExclusive: n,
+  });
+  m.advancePixels(100);
+  Object.assign(m.cpu.bus, { nIORQ: 0, nM1: 0 });
+  m.advancePixels(1);
+  Object.assign(m.cpu.bus, { nIORQ: 1, nM1: 1 });
+  m.advanceFrame();
+  expect(m.video.completed.interruptCount).toBe(2);
+  expect(m.video.completed.interrupts.slice(0, 2)).toEqual([
+    { start: 0, endExclusive: 100 },
+    { start: n - 8, endExclusive: n },
+  ]);
+  const rgba = m.renderFrame();
+  for (const c of [0, 99, n - 8, n - 1])
+    expect([...rgba.slice(c * 4, c * 4 + 4)]).toEqual([255, 96, 0, 255]);
+  for (const c of [100, n - 9])
+    expect([...rgba.slice(c * 4, c * 4 + 4)]).not.toEqual([255, 96, 0, 255]);
+});
+
+it("captures no INT pixel when turbo acknowledges between its two CPU edges", () => {
+  const m = createMachine({ rom: rom(), cpu7: true });
+  m.cpu.clockEdge = () => {};
+  m.advancePixels(314 * 448 - 8);
+  m.cpu.clockEdge = () => {
+    m.cpu.bus.nIORQ = 0;
+    m.cpu.bus.nM1 = 0;
+  };
+  m.advanceFrame();
+  expect(m.video.completed.interruptCount).toBe(0);
+});
+
+it.each([false, true])(
+  "integrates non-HALT slots over stable multi-frame windows (turbo=%s)",
+  (cpu7) => {
+    const m = createMachine({ rom: rom(), cpu7 });
+    m.cpu.clockEdge = () => {};
+    const n = m.videoPreset.pixelsPerFrame;
+    const windowSlots = n * CPU_LOAD_SAMPLE_FRAMES;
+    expect(m.cpuLoad).toBeNull();
+    m.cpu.bus.nHALT = 0;
+    m.advancePixels(997);
+    m.advancePixels(windowSlots / 2 - 997);
+    m.cpu.bus.nHALT = 1;
+    m.advancePixels(windowSlots / 2 - 1);
+    expect(m.cpuLoad).toBeNull();
+    m.advancePixels(1);
+    expect(m.cpuLoad).toBe(50);
+    m.advancePixels(windowSlots - 1);
+    expect(m.cpuLoad).toBe(50); // No per-frame flicker during the next window.
+    m.advancePixels(1);
+    expect(m.cpuLoad).toBe(100);
+    m.cpu.bus.nHALT = 0;
+    m.advancePixels(windowSlots);
+    expect(m.cpuLoad).toBe(0);
+    m.advancePixels(n + 100);
+    m.setVideoPreset(LVIV_VIDEO_PRESET);
+    expect(m.cpuLoad).toBeNull();
+    m.cpu.bus.nHALT = 1;
+    m.advancePixels(
+      LVIV_VIDEO_PRESET.pixelsPerFrame * CPU_LOAD_SAMPLE_FRAMES - 1,
+    );
+    expect(m.cpuLoad).toBeNull();
+    m.advancePixels(1);
+    expect(m.cpuLoad).toBe(100);
+  },
+);
+
+it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
+  "fires FLASH exactly once per frame at its counter edge: $id",
+  (preset) => {
+    const m = createMachine({ rom: rom(), videoPreset: preset });
+    m.cpu.clockEdge = () => {};
+    const symbols = preset.width / 8;
+    const x = m.video.advanceX;
+    let trigger = -1;
+    for (let y = 0; y < preset.height; y++)
+      if (m.video.vPositions[y * symbols + (x >>> 3)] === preset.flashLine)
+        trigger = y * preset.width + x;
+    expect(trigger).toBeGreaterThanOrEqual(0);
+    m.advancePixels(trigger);
+    expect(m.counters[Counter.flash]).toBe(0);
+    m.advancePixels(1);
+    expect(m.counters[Counter.flash]).toBe(1);
+    m.advanceFrame();
+    expect(m.counters[Counter.flash]).toBe(1);
+    m.advanceFrame();
+    expect(m.counters[Counter.flash]).toBe(2);
   },
 );

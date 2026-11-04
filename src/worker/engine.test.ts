@@ -28,7 +28,12 @@ function harness() {
     turbo: false,
     lateInt: false,
   });
-  return { engine, messages, send };
+  const ticks = () =>
+    messages.reduce(
+      (total, m) => total + ("state" in m ? (m.state?.tickDelta ?? 0) : 0),
+      0,
+    );
+  return { engine, messages, send, ticks };
 }
 afterEach(() => vi.useRealTimers());
 it("matches synchronous execution and raster exactly through transferable buffers", () => {
@@ -38,7 +43,7 @@ it("matches synchronous execution and raster exactly through transferable buffer
     direct.advanceFrame();
     const result = h.send({ type: "step" });
     expect(result.state?.pc).toBe(direct.cpu.regs.pc);
-    expect(result.state?.ticks).toBe(direct.counters[0]);
+    expect(h.ticks()).toBe(direct.takeElapsedTicks());
     const frame = h.messages.find((m) => m.type === "frame") as Extract<
       FromWorker,
       { type: "frame" }
@@ -144,23 +149,21 @@ it("yields to pause, visibility and free-run commands without advancing after ac
   try {
     h.send({ type: "run", value: true });
     vi.advanceTimersByTime(40);
-    const paused = h.send({ type: "run", value: false });
-    expect(paused.state?.ticks).toBeGreaterThan(0);
+    h.send({ type: "run", value: false });
+    const pausedTicks = h.ticks();
+    expect(pausedTicks).toBeGreaterThan(0);
     vi.advanceTimersByTime(40);
-    expect(
-      h.send({ type: "inspect", address: 0, length: 0 }).state?.ticks,
-    ).toBe(paused.state?.ticks);
+    h.send({ type: "inspect", address: 0, length: 0 });
+    expect(h.ticks()).toBe(pausedTicks);
     h.send({ type: "visible", value: false });
     h.send({ type: "run", value: true });
     vi.advanceTimersByTime(40);
-    expect(
-      h.send({ type: "inspect", address: 0, length: 0 }).state?.ticks,
-    ).toBe(paused.state?.ticks);
+    h.send({ type: "inspect", address: 0, length: 0 });
+    expect(h.ticks()).toBe(pausedTicks);
     h.send({ type: "visible", value: true });
     vi.advanceTimersByTime(20);
-    expect(h.send({ type: "run", value: false }).state?.ticks).toBeGreaterThan(
-      paused.state?.ticks ?? 0,
-    );
+    h.send({ type: "run", value: false });
+    expect(h.ticks()).toBeGreaterThan(pausedTicks);
   } finally {
     h.engine.dispose();
   }
@@ -168,15 +171,34 @@ it("yields to pause, visibility and free-run commands without advancing after ac
 it("rejects unsupported tape loads before changing machine state", () => {
   const h = harness();
   try {
-    const before = h.send({ type: "step", pixels: 100 });
+    h.send({ type: "step", pixels: 100 });
+    const before = h.ticks();
     const result = h.send({
       type: "tape",
       bytes: new Uint8Array([2, 0, 255, 255]),
       name: "test.tap",
     });
     expect(result.error).toContain("not supported");
-    const after = h.send({ type: "inspect", address: 0, length: 0 });
-    expect(after.state?.ticks).toBe(before.state?.ticks);
+    h.send({ type: "inspect", address: 0, length: 0 });
+    expect(h.ticks()).toBe(before);
+  } finally {
+    h.engine.dispose();
+  }
+});
+
+it("reports tick deltas while a video transfer is still in flight", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  const h = harness();
+  try {
+    h.send({ type: "step" }); // Hold the only display buffer on the UI side.
+    const before = h.ticks();
+    h.send({ type: "run", value: true });
+    vi.advanceTimersByTime(60);
+    expect(h.ticks()).toBeGreaterThan(before);
+    expect(h.messages.filter((m) => m.type === "frame")).toHaveLength(1);
+    expect(
+      h.messages.some((m) => m.type === "state" && m.state.tickDelta > 0),
+    ).toBe(true);
   } finally {
     h.engine.dispose();
   }

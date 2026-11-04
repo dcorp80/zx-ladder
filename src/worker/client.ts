@@ -92,6 +92,12 @@ export class WorkerMachine implements MachineLike {
   private disposed = false;
   private running = false;
   private epoch = 0;
+  private pendingTicks = 0;
+  takeElapsedTicks(): number {
+    const ticks = this.pendingTicks;
+    this.pendingTicks = 0;
+    return ticks;
+  }
   private nextId = 0;
   private readonly pending = new Map<
     number,
@@ -116,6 +122,7 @@ export class WorkerMachine implements MachineLike {
   frameCount = 0;
   framePosition = 0;
   cpu7: boolean;
+  cpuLoad: number | null = null;
   hasFrame = false;
   presentationVersion = 0;
   videoPreset: VideoPreset;
@@ -189,17 +196,24 @@ export class WorkerMachine implements MachineLike {
     this.counters.set(state.counters);
     this.cpu.regs.pc = state.pc;
     this.cpu7 = state.cpu7;
+    this.cpuLoad = state.cpuLoad;
     this.tape.status = state.tape;
     this.keyboard.update(state);
     this.options?.onFps?.(state.fps);
   }
   private receive(message: FromWorker): void {
     if (this.disposed) return;
+    // Execution belongs to this machine even if its presentation epoch is old.
+    // Every snapshot carries a delta exactly once, including command replies.
+    if ("state" in message && message.state) {
+      this.pendingTicks += message.state.tickDelta;
+    }
     if (message.type === "reply") {
       const waiting = this.pending.get(message.id);
       this.pending.delete(message.id);
       if (message.error) waiting?.reject(new Error(message.error));
       else waiting?.resolve(message);
+      this.options?.onUpdate?.();
       return;
     }
     if (message.type === "error") {
@@ -240,6 +254,7 @@ export class WorkerMachine implements MachineLike {
         this.apply(message.state);
         this.options?.onUpdate?.();
       } finally {
+        if (!presented) this.options?.onUpdate?.();
         this.worker.postMessage(
           { recycle: "frame", bytes: message.bytes, presented },
           [message.bytes.buffer],
@@ -248,7 +263,7 @@ export class WorkerMachine implements MachineLike {
     } else if (message.epoch === this.epoch) {
       this.apply(message.state);
       this.options?.onUpdate?.();
-    }
+    } else this.options?.onUpdate?.();
   }
   createLoop(options: LoopOptions): HostLoopLike {
     this.options = options;
@@ -305,6 +320,7 @@ export class WorkerMachine implements MachineLike {
     this.epoch++;
     this.videoPreset = preset;
     this.hasFrame = false;
+    this.cpuLoad = null;
     this.rgba = new Uint8ClampedArray(this.width * this.height * 4);
     this.fire({ type: "video", preset });
   }
@@ -321,10 +337,14 @@ export class WorkerMachine implements MachineLike {
   /** Debugger-facing pause acknowledgment contains one coherent stopped state. */
   async pauseExecution(): Promise<MachineState> {
     this.running = false;
-    this.epoch++;
+    const epoch = ++this.epoch;
     const result = await this.request({ type: "run", value: false });
     if (!result.state)
       throw new Error("Worker did not acknowledge stopped state");
+    if (!this.disposed && !this.running && this.epoch === epoch) {
+      this.apply(result.state);
+      this.options?.onUpdate?.();
+    }
     return result.state;
   }
   async stepPixels(pixels: number): Promise<void> {

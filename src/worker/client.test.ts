@@ -11,10 +11,18 @@ class LoopbackWorker {
   onerror: ((event: ErrorEvent) => void) | null = null;
   onmessageerror: (() => void) | null = null;
   terminated = false;
+  suppressSnapshots = false;
   private engine = new WorkerEngine((message, transfer = []) => {
     const data = structuredClone(message, { transfer });
     queueMicrotask(() => {
-      if (!this.terminated) this.onmessage?.({ data } as MessageEvent);
+      if (
+        !this.terminated &&
+        !(
+          this.suppressSnapshots &&
+          (data.type === "state" || data.type === "frame")
+        )
+      )
+        this.onmessage?.({ data } as MessageEvent);
     });
   });
   constructor() {
@@ -47,7 +55,9 @@ it("provides acknowledged control, stable render storage, keyboard and coherent 
   try {
     await machine.stepPixels(500);
     const stopped = await machine.pauseExecution();
-    expect(stopped.ticks).toBe(500);
+    expect(stopped.framePosition).toBe(500);
+    expect(machine.takeElapsedTicks()).toBe(500);
+    expect(machine.takeElapsedTicks()).toBe(0);
     expect((await machine.inspectMemory(0, 1))[0]).toBe(0x76);
     const buffer = machine.renderFrame();
     machine.advanceFrame();
@@ -92,4 +102,51 @@ it("rejects outstanding requests and reports worker failure once", async () => {
   await rejection;
   expect(onError).toHaveBeenCalledTimes(1);
   expect(LoopbackWorker.instances[0].terminated).toBe(true);
+});
+
+it("accounts for execution in rejected frames and across preset changes exactly once", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const machine = new WorkerMachine({ rom: new Uint8Array(16384) });
+  machine.createLoop({});
+  try {
+    // Queue execution, then invalidate its presentation before its reply arrives.
+    const step = machine.stepPixels(448 * 320 + 17);
+    machine.setVideoPreset(LVIV_VIDEO_PRESET);
+    await step;
+    await machine.inspectMemory(0, 0);
+    expect(machine.hasFrame).toBe(false);
+    expect(machine.takeElapsedTicks()).toBe(448 * 320 + 17);
+    expect(machine.takeElapsedTicks()).toBe(0);
+    machine.setReset(true);
+    machine.setReset(false);
+    await machine.stepPixels(31);
+    await machine.pauseExecution();
+    await machine.inspectMemory(0, 0);
+    expect(machine.takeElapsedTicks()).toBe(31);
+    expect(machine.takeElapsedTicks()).toBe(0);
+  } finally {
+    machine.dispose();
+  }
+});
+
+it("publishes the acknowledged stopped snapshot even when presentation snapshots are unavailable", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const machine = new WorkerMachine({ rom: new Uint8Array(16384) });
+  const onUpdate = vi.fn();
+  machine.createLoop({ onUpdate });
+  try {
+    await machine.inspectMemory(0, 0);
+    const worker = LoopbackWorker.instances.at(-1);
+    if (!worker) throw new Error("Expected worker");
+    worker.suppressSnapshots = true;
+    await machine.stepPixels(123);
+    expect(machine.framePosition).toBe(0);
+    const stopped = await machine.pauseExecution();
+    expect(machine.framePosition).toBe(123);
+    expect(machine.cpu.regs.pc).toBe(stopped.pc);
+    expect([...machine.counters]).toEqual(stopped.counters);
+    expect(onUpdate).toHaveBeenCalled();
+  } finally {
+    machine.dispose();
+  }
 });

@@ -5,10 +5,10 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.2.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.2.2** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-Use Node.js 24. Run `npm ci`, then `npm run dev` and open http://localhost:3000.
+Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
 On first visit, the bundled **48K ROM** is loaded and saved in IndexedDB.
 Press **Run** to start. A previously saved 16 KiB ROM takes precedence and is
 restored paused; the Machine section’s file selector can replace it as before.
@@ -27,8 +27,8 @@ override it. The theme cache is applied before the first paint.
 - **Turbo** selects 7 MHz CPU operation; the video clock stays at 7 MHz.
   It can be changed while running. The requested divider is latched on the
   next `nM1` low-to-high transition and used from the following pixel slot.
-- **Free run** removes real-time pacing and runs as much emulation as fits
-  in a 16 ms work budget per RAF, presenting the latest completed frame.
+- **Free run** removes real-time pacing and runs continuous worker batches,
+  yielding after a bounded 4 ms work budget and presenting the latest completed frame.
   It switches live without resetting the machine and is independent of CPU
   turbo. FPS reports the resulting emulation speed. Turning it off restores
   real-time pacing without a catch-up burst.
@@ -46,7 +46,7 @@ memory-slot clock. Video presets define raster counters, signal windows,
 INT timing, and FLASH advancement/bit selection independently of that clock.
 The machine captures pixel and attribute latches as execution progresses,
 including the FLASH phase at capture time, and samples border colour per
-pixel. RAF controls elapsed-time pacing and presents completed frames.
+pixel. The worker follows elapsed wall time; RAF presents completed frames.
 The FPS indicator measures completed emulator frames against wall-clock
 time and updates every 16 frames. Pausing or hiding the tab clears the sample
 so inactive time does not lower the next reading.
@@ -55,6 +55,10 @@ Memory and I/O devices register their address claims with the bus. Video
 registers a clock hook and shares memory slots with CPU MREQ transitions.
 The CPU, previous pin state, fetch latches, and counters survive frame
 boundaries. RAM uses three plain 16 KiB arrays plus one protected ROM array.
+Memory pages fully covered by one owner and without interceptors dispatch directly
+to that owner. Conditional memory interceptors run in priority order, checking
+exact address ranges before handling an access or passing it through to backing
+memory. ROM protection stays in the memory handler; I/O decoding is separate.
 
 The Keyboard section uses MacBook Pro ISO geometry with Spectrum legends.
 Click the screen or keyboard surface to type; configuration controls keep
@@ -184,7 +188,7 @@ The workflow in `.github/workflows/pages.yml` uses Node 24 and `npm ci`, then
 runs lint, typecheck, tests, and the production build for pull requests and
 pushes to `main`. Deployment follows Explorer's release-tag/manual pattern:
 
-- Push a `ladder-v*` release tag (for example `ladder-v0.2.0`, after updating
+- Push a `ladder-v*` release tag (for example `ladder-v0.2.2`, after updating
   `package.json` and its lockfile) to publish that revision.
 - Alternatively, run **CI and deploy Ladder to GitHub Pages** manually from
   GitHub Actions and select the revision to publish.
@@ -229,6 +233,21 @@ wall time; tab visibility pauses execution without losing run intent. Run,
 Pause, frame stepping, reset, turbo, presets, keyboard and tape loading remain
 available. Worker failures stop execution and display an error; Cold boot can
 create a fresh worker.
+
+The CPU load meter shows the percentage of 7 MHz raster slots outside HALT in
+the last 16-frame sampling window (0% continuously halted, 100% continuously active).
+It measures emulated activity, not host CPU usage; busy-wait loops count as active.
+It samples once per 16 frames (about 0.32 seconds at normal speed) and shows an
+em dash until the first full window after cold boot or a preset change.
+Machine meters refresh at most once every 320 ms while running; video remains
+unthrottled. Pausing immediately publishes the acknowledged stopped counters,
+PC and position, while CPU load retains its latest completed-window average.
+
+The Ticks meter counts elapsed 7 MHz raster slots, independently of CPU turbo.
+Execution chunks report processed-slot deltas; the UI adds each delta once,
+including work from discarded video frames. Video-preset changes and warm reset
+preserve the total; cold boot clears it. No global pixel counter is incremented
+inside the per-slot loop.
 
 One reusable display buffer is transferred at a time; missed presentation frames
 are skipped while emulation continues. Audio capture uses a three-buffer pool.

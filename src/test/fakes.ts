@@ -2,22 +2,30 @@ import { KeyboardDevice } from "../devices/keyboard";
 import type { VideoPreset } from "../devices/videoPresets";
 import { PENTAGON_VIDEO_PRESET } from "../devices/videoPresets";
 import { rasterTiming } from "../machine/config";
+import { createCounters } from "../machine/counters";
 import type { HostLoopLike, MachineLike } from "../store";
 
 export function makeFakeMachine(): MachineLike {
   const width = PENTAGON_VIDEO_PRESET.width;
   const height = PENTAGON_VIDEO_PRESET.height;
+  let pendingTicks = 0;
   const machine = {
+    takeElapsedTicks() {
+      const ticks = pendingTicks;
+      pendingTicks = 0;
+      return ticks;
+    },
     videoPreset: PENTAGON_VIDEO_PRESET,
     timing: rasterTiming(PENTAGON_VIDEO_PRESET),
     width,
     height,
     cpu: { regs: { pc: 0 } },
     keyboard: new KeyboardDevice(),
-    counters: new Float64Array(6),
+    counters: createCounters(),
     frameCount: 0,
     framePosition: 0,
     cpu7: false,
+    cpuLoad: null,
     hasFrame: false,
     setReset(_pressed: boolean) {},
     setLateInt(_enabled: boolean) {},
@@ -34,7 +42,7 @@ export function makeFakeMachine(): MachineLike {
     },
     advancePixels(count: number) {
       const pixelsPerFrame = machine.videoPreset.pixelsPerFrame;
-      machine.counters[0] += count;
+      pendingTicks += count;
       const current = machine.framePosition + Math.max(0, Math.floor(count));
       const complete = Math.floor(current / pixelsPerFrame);
       machine.frameCount += complete;
@@ -45,7 +53,7 @@ export function makeFakeMachine(): MachineLike {
       return complete;
     },
     advanceFrame() {
-      machine.counters[0] +=
+      pendingTicks +=
         machine.videoPreset.pixelsPerFrame - machine.framePosition;
       machine.frameCount += 1;
       machine.framePosition = 0;

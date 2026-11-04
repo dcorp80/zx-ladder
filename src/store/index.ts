@@ -4,6 +4,7 @@ import {
   createEffect,
   createRoot,
   createSignal,
+  untrack,
   useContext,
 } from "solid-js";
 import { BeeperOutput } from "../audio/output";
@@ -20,10 +21,17 @@ import {
 } from "../files/library";
 import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 import type { RasterTiming } from "../machine/config";
-import { Counter } from "../machine/counters";
 import { createMachine } from "../machine/machine";
 import { loadBundledRom } from "../rom/bundledRom";
 import { createHostLoop } from "../runloop/hostLoop";
+import {
+  openDefaultBackend,
+  ROM_SIZE,
+  type RomRecord,
+  type StorageBackend,
+  validateRomBytes,
+  validateRomRecord,
+} from "../storage";
 import {
   applyTheme,
   loadConfig,
@@ -31,20 +39,15 @@ import {
   saveConfig,
   type Theme,
 } from "../storage/config";
-import { openDefaultBackend } from "../storage/indexeddb";
-import {
-  ROM_SIZE,
-  type RomRecord,
-  type StorageBackend,
-  validateRomBytes,
-  validateRomRecord,
-} from "../storage/types";
 import { WorkerMachine } from "../worker/client";
 
 export type { Theme } from "../storage/config";
 
+export const MACHINE_METER_REFRESH_MS = 320;
+
 /** The part of the machine contract the UI needs. */
 export interface MachineLike {
+  takeElapsedTicks(): number;
   setAudioSink?(sink?: (latch: Uint8Array, slotHz: number) => void): void;
   readonly tape?: { readonly status: string };
   loadTape?(bytes: Uint8Array, name: string): void | Promise<void>;
@@ -62,6 +65,7 @@ export interface MachineLike {
   readonly frameCount: number;
   readonly framePosition: number;
   readonly cpu7: boolean;
+  readonly cpuLoad: number | null;
   readonly hasFrame: boolean;
   setLateInt(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
@@ -83,6 +87,7 @@ export interface RuntimeStatus {
   frames: number;
   pc: number;
   ticks: number;
+  cpuLoad: number | null;
   framePosition: number;
   hasFrame: boolean;
   width: number;
@@ -244,6 +249,7 @@ export async function createAppStore(
       frames: 0,
       pc: 0,
       ticks: 0,
+      cpuLoad: null,
       framePosition: 0,
       hasFrame: false,
       width: initialVideoPreset.width,
@@ -335,13 +341,22 @@ export async function createAppStore(
       setFrameVersion((version) => version + 1);
     };
 
+    let tickMachine: MachineLike | null = null;
+    let elapsedTicks = 0;
+    let lastMeterUpdate = -Infinity;
     const refresh = () => {
       const active = machine();
+      const replaced = active !== tickMachine;
+      if (replaced) {
+        tickMachine = active;
+        elapsedTicks = 0;
+      }
       if (!active) {
         setStatus({
           frames: 0,
           pc: 0,
           ticks: 0,
+          cpuLoad: null,
           framePosition: 0,
           hasFrame: false,
           width: videoPreset().width,
@@ -350,19 +365,34 @@ export async function createAppStore(
         refreshPresentation(null);
         return;
       }
-      const position = Math.max(0, Math.floor(active.framePosition));
-      const frames = Math.max(0, Math.floor(active.frameCount));
-      setStatus({
-        frames,
-        pc: Math.max(0, Math.floor(active.cpu.regs?.pc ?? 0)) & 0xffff,
-        ticks: active.counters[Counter.pixels],
-        framePosition: position,
-        hasFrame: active.hasFrame,
-        width: active.width,
-        height: active.height,
-      });
+      elapsedTicks += active.takeElapsedTicks();
+      const running = loop?.isRunning() ?? false;
+      const now = performance.now();
+      const previous = untrack(status);
+      // Reporting is throttled; execution accounting and video presentation are not.
+      // A stopped machine always publishes exact values, including pause replies.
+      if (
+        !running ||
+        replaced ||
+        now - lastMeterUpdate >= MACHINE_METER_REFRESH_MS ||
+        previous.hasFrame !== active.hasFrame ||
+        previous.width !== active.width ||
+        previous.height !== active.height
+      ) {
+        lastMeterUpdate = now;
+        setStatus({
+          frames: Math.max(0, Math.floor(active.frameCount)),
+          pc: Math.max(0, Math.floor(active.cpu.regs?.pc ?? 0)) & 0xffff,
+          ticks: elapsedTicks,
+          cpuLoad: active.cpuLoad,
+          framePosition: Math.max(0, Math.floor(active.framePosition)),
+          hasFrame: active.hasFrame,
+          width: active.width,
+          height: active.height,
+        });
+      }
       refreshPresentation(active);
-      setIsRunning(loop?.isRunning() ?? false);
+      setIsRunning(running);
     };
 
     const stopLoop = () => {

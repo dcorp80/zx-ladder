@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.2 — 2026-11-04
+
+- Compile direct memory dispatch for fully covered pages without interceptors.
+  Support conditional, prioritized memory interceptors with pass-through reads
+  and writes, retaining backing-memory ROM protection and partial-page decoding.
+
+- Smooth CPU load over 16 frames and throttle running Machine meters to 320 ms.
+  Pause bypasses the display throttle and publishes the acknowledged stopped state.
+
+- Flatten raster execution to one resumable frame-position loop and precompute
+  INT/FLASH trigger positions when video timing changes.
+- Replace full-raster INT capture planes with preallocated start/end intervals,
+  preserving ACK timing, frame-boundary clipping and the orange overlay.
+- Add CPU load to Machine: the percentage of 7 MHz slots outside HALT in the
+  last 16-frame window, independent of host CPU usage and free-run speed.
+
+- Cache stable machine references during execution chunks.
+- Accumulate the Ticks meter from processed-slot deltas outside the inner loop.
+  Preserve totals through video-preset changes, warm reset, and rejected video
+  frames; clear them on cold boot. Update browser profiling to use these deltas.
+- Name the worker execution-budget and scheduling-delay constants.
+
 ## 0.2.1 — 2026-11-03
 
 ### Maintenance
