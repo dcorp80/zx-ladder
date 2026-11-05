@@ -53,9 +53,10 @@ it("selects and protects both ROMs, applies the locking write, and resets withou
   bus.writeIo(0x7ffd, 7);
   expect(memory.read(0xc000)).toBe(99);
 });
-it("switches exact 7FFD / low-byte FD decoding live, without unlocking or changing state", () => {
+it("switches standard 128K / low-byte FD decoding live, without unlocking or changing state", () => {
   const { bus, mcu } = fixture();
-  for (const address of [0xfd, 0x1ffd, 0xfffd, 0x7ffc]) bus.writeIo(address, 3);
+  for (const address of [0xfffd, 0xbffd, 0x7fff, 0x7ffe])
+    bus.writeIo(address, 3);
   expect(mcu.latch).toBe(0);
   bus.writeIo(0x7ffd, 1);
   mcu.decodeFd = true;
@@ -152,4 +153,55 @@ it("recognizes the active physical ROM and disables helpers after paging away", 
   expect(m.tape.supported).toBe(false);
   expect(m.tape.read(0x056c, true, m.cpu)).toBeUndefined();
   expect(m.keyboard.romCapsLock).toBeUndefined();
+});
+
+it("decodes every paging alias without claiming AY ports", () => {
+  const { bus, mcu } = fixture();
+  for (let address = 0; address < 65536; address++) {
+    bus.writeIo(address, 0x19);
+    expect(mcu.latch, address.toString(16)).toBe(
+      (address & 0x8002) === 0 ? 0x19 : 0,
+    );
+    mcu.reset();
+  }
+});
+
+it("pages through immediate OUT (FD),A as used by demo loaders", () => {
+  const rom = new Uint8Array(32768);
+  const program = [
+    0x3e,
+    0x51,
+    0xd3,
+    0xfd, // page 1 via 51FD
+    0x3e,
+    42,
+    0x32,
+    0,
+    0xc0,
+    0x3e,
+    0x50,
+    0xd3,
+    0xfd, // page 0 via 50FD
+    0x3e,
+    99,
+    0x32,
+    0,
+    0xc0,
+    0x3e,
+    0x51,
+    0xd3,
+    0xfd,
+    0x3a,
+    0,
+    0xc0,
+    0x76,
+  ];
+  rom.set(program);
+  rom.set(program, 16384);
+  const m = createMachine({ rom });
+  m.advancePixels(1000);
+  expect(m.cpu.bus.nHALT).toBe(0);
+  expect(m.cpu.snapshot().main.a).toBe(42);
+  expect(m.memory.ramPages[0][0]).toBe(99);
+  expect(m.memoryMapping.ramPage).toBe(1);
 });

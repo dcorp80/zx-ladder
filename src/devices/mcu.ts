@@ -13,9 +13,11 @@ export class Mcu implements Device {
   ) {
     this.io = [
       {
-        lowMask: 255,
-        lowValue: 0xfd,
-        selected: (address) => this.decodeFd || address === 0x7ffd,
+        // Standard 128K/Pentagon paging decodes only A15 and A1.
+        lowMask: 2,
+        lowValue: 0,
+        selected: (address) =>
+          this.decodeFd ? (address & 255) === 0xfd : (address & 0x8000) === 0,
         write: (_address, value) => this.write(value),
       },
     ];

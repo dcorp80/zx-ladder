@@ -24,13 +24,12 @@ Machine also shows the current RAM page at C000–FFFF, ROM page at 0000–3FFF,
 and physical screen RAM page (5 or 7). These follow the live machine status and
 return to RAM 0 / ROM 0 / screen 5 after reset.
 
-**Decode paging port by low byte** switches between exact `7FFD` (unchecked,
-default) and any `xxFD` address (checked). The setting is saved and applies live
+**Decode paging port by low byte** switches between standard 128K loose decoding (unchecked,
+default: A15=0 and A1=0) and any `xxFD` address (checked). The setting is saved and applies live
 without clearing RAM or unlocking paging. Bits 0–2 select top RAM, bit 3 selects
 screen RAM 5/7, bit 4 selects ROM, and bit 5 locks further paging until reset.
-These decode choices are explicit emulator modes, not the original 128K partial
-hardware decode. FD also catches FFFD/BFFD sound-port writes and disrupts the
-bundled 128K ROM boot; use exact 7FFD for that firmware. Warm reset clears paging and preserves RAM; cold boot clears RAM.
+The low-byte override also catches FFFD/BFFD sound-port writes and disrupts the
+bundled 128K ROM boot; use standard decoding for that firmware. Warm reset clears paging and preserves RAM; cold boot clears RAM.
 Video fetches physical screen RAM independently of CPU mappings and CPU address
 interceptors, retaining the existing slot arbitration and captured fetch latches.
 Flash loading supports the bundled 128K Tape Loader menu and the standard 48K
@@ -104,8 +103,9 @@ read returns `0x1F`; unclaimed odd ports still return `0xFF`. The bus supports d
 inhibition for shared ports. State-changing I/O commit notifications and a
 general device/UI adapter registry remain future work.
 
-Sound supports the FE bit-4 beeper and AY-3-8912 on 128K machines. AY uses exact
-FFFD register selection/readback and BFFD data writes, with a fixed 1.75 MHz clock
+Sound supports the FE bit-4 beeper and AY-3-8912 on 128K machines. AY uses
+FFFD register selection/readback and BFFD data writes (including aliases decoded
+with mask C002; even-port reads retain FE/keyboard priority), with a fixed 1.75 MHz clock
 independent of CPU turbo. Sound controls include independent Beeper/AY enable and
 volume, ABC/ACB/Mono routing, and middle-channel contribution to each speaker.
 Both volumes default to 20%; middle contribution defaults to 50%. Preferences
@@ -157,7 +157,7 @@ Load validates the tape before changing the machine. With the bundled 128K ROM,
 it resets to the main menu, waits for its verified keyboard polling loop, and
 presses Enter through the keyboard matrix to select Tape Loader. With a standalone
 48K ROM, it resets, waits for BASIC, and types `LOAD ""` plus Enter. Reset itself
-preserves RAM, but the 128K firmware's boot routine clears RAM. Exact 7FFD decoding
+preserves RAM, but the 128K firmware's boot routine clears RAM. Standard 128K decoding
 is required for this 128K menu workflow; incompatible FD decoding is rejected
 before reset. Ordinary ROM paging retains the tape cursor, and flash copies use
 the currently selected RAM pages, including banked loads above C000.

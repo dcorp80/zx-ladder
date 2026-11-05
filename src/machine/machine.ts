@@ -335,7 +335,7 @@ export class Machine implements ClockContext {
       throw new Error("This ROM is not supported by the flash tape loader.");
     if (this.tape.supports128Menu && this.mcu.decodeFd)
       throw new Error(
-        "Select exact 7FFD paging (uncheck low-byte FD) before loading with the 128K ROM.",
+        "Select standard 128K paging (uncheck low-byte FD) before loading with the 128K ROM.",
       );
     // Validate before touching the running machine.
     parseTape(bytes, name, this.memory.expanded);

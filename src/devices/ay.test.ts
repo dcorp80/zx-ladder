@@ -40,12 +40,12 @@ function machine(cpu7 = false) {
   return createMachine({ rom, cpu7 });
 }
 
-it("decodes exact FFFD/BFFD, reads immediately and retains repeated envelope writes", () => {
+it("decodes FFFD/BFFD aliases, reads immediately and retains repeated envelope writes", () => {
   const { ay, bus, at } = fixture();
-  bus.writeIo(0xfffd, 13);
+  bus.writeIo(0xfefd, 13);
   at(10);
-  bus.writeIo(0xbffd, 0xf9);
-  expect(bus.readIo(0xfffd)).toBe(9);
+  bus.writeIo(0xbefd, 0xf9);
+  expect(bus.readIo(0xfdfd)).toBe(9);
   at(20);
   bus.writeIo(0xbffd, 9);
   bus.writeIo(0x00fd, 3);
@@ -318,4 +318,24 @@ it("keeps AY absent on 48K machines and preserves the explicit broad-FD collisio
   m.bus.writeIo(0xfffd, 13);
   expect(m.mcu.latch).toBe(13);
   expect(m.ay?.selectedRegister).toBe(13);
+});
+
+it("decodes AY aliases using A15, A14 and A1, independently of paging", () => {
+  const m = machine();
+  for (const port of [0xfffd, 0xfefd, 0xfdfd, 0xc000, 0xd001]) {
+    m.bus.writeIo(port, 8);
+    for (const dataPort of [0xbffd, 0xbefd, 0x8000, 0xa001]) {
+      m.bus.writeIo(dataPort, 15);
+      expect(m.bus.readIo(port | 1)).toBe(15);
+      expect(m.ay?.registers[8]).toBe(15);
+      expect(m.mcu.latch).toBe(0);
+    }
+  }
+  for (const port of [0xffff, 0xbfff, 0xc002, 0x8002]) {
+    m.bus.writeIo(port, 0);
+    expect(m.bus.readIo(port)).toBe(port & 1 ? 255 : 0x1f);
+  }
+  expect(m.ay?.registers[8]).toBe(15);
+  expect(m.ay?.selectedRegister).toBe(8);
+  expect(m.bus.readIo(0xc000)).toBe(0x1f);
 });

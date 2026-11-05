@@ -78,14 +78,17 @@ export const MachineSection: Component = () => {
           <input
             type="checkbox"
             checked={store.decodeFd()}
-            title="FD also matches FFFD/BFFD sound ports; use exact 7FFD for the bundled 128K ROM."
+            title="FD also matches FFFD/BFFD sound ports; use standard 128K for the bundled 128K ROM."
             onChange={(event) => store.setDecodeFd(event.currentTarget.checked)}
           />
-          <span>Decode paging port by low byte (FD instead of exact 7FFD)</span>
+          <span>
+            Decode paging port by low byte (FD instead of standard 128K
+            decoding)
+          </span>
         </label>
         <p class="muted">
-          FD also matches FFFD/BFFD sound ports. Use exact 7FFD for the bundled
-          128K ROM.
+          FD also matches FFFD/BFFD sound ports. Use standard 128K for the
+          bundled 128K ROM.
         </p>
         <dl class="machine-status machine-meters" aria-live="polite">
           <div>

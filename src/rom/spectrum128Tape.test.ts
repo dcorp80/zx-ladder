@@ -127,7 +127,7 @@ it("rejects invalid tape and incompatible paging before resetting an active 128K
   expect(m.mcu.latch).toBe(7);
   expect(m.cpu.bus.nRESET).toBe(1);
   m.setDecodeFd(true);
-  expect(() => m.loadTape(basicTape(), "basic.tap")).toThrow("exact 7FFD");
+  expect(() => m.loadTape(basicTape(), "basic.tap")).toThrow("standard 128K");
   expect(m.mcu.latch).toBe(7);
 });
 

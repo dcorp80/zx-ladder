@@ -58,18 +58,26 @@ export class AyDevice implements Device {
     this.capture.origin = now();
     this.io = [
       {
-        lowMask: 255,
-        lowValue: 0xfd,
-        highMask: 255,
-        highValue: 0xff,
+        // Even-port reads belong to FE/keyboard, as in m8xxx. Writes below
+        // still reach AY on every C002 alias, including even addresses.
+        lowMask: 3,
+        lowValue: 1,
+        highMask: 0xc0,
+        highValue: 0xc0,
         read: () => this.read(),
+      },
+      {
+        lowMask: 2,
+        lowValue: 0,
+        highMask: 0xc0,
+        highValue: 0xc0,
         write: (_address, value) => this.select(value),
       },
       {
-        lowMask: 255,
-        lowValue: 0xfd,
-        highMask: 255,
-        highValue: 0xbf,
+        lowMask: 2,
+        lowValue: 0,
+        highMask: 0xc0,
+        highValue: 0x80,
         write: (_address, value) => this.write(value),
       },
     ];

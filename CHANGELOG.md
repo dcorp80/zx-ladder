@@ -2,6 +2,9 @@
 
 ## 0.2.2 — 2026-11-04
 
+- Use loose 128K/Pentagon paging and AY port decoding, supporting demo aliases
+  used by Rage and EyeAche. Retain the explicit low-byte FD paging override.
+
 - Replace per-pixel FE capture/audio scanning with a shared preallocated time/value
   event history. Preserve repeated writes and sampling phase; expand only colour
   changes into border spans and integrate bit-4 changes for beeper audio.
