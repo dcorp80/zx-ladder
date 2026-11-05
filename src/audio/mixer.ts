@@ -1,3 +1,5 @@
+import type { FeBatch } from "../devices/border";
+import { IO_MAX_BATCH_TICKS } from "../machine/ioCapture";
 import type { AyPcmBlock } from "./aySynth";
 
 export type AyStereo = "ABC" | "ACB" | "Mono";
@@ -25,7 +27,8 @@ export type StereoSink = (
 export const PCM_BLOCK_FRAMES = 256;
 export const MAX_SAMPLE_RATE = 192_000;
 const SLOT_HZ = 7_000_000;
-const MAX_SAMPLES = Math.ceil((143_360 * MAX_SAMPLE_RATE) / SLOT_HZ) + 1;
+const MAX_SAMPLES =
+  Math.ceil((IO_MAX_BATCH_TICKS * MAX_SAMPLE_RATE) / SLOT_HZ) + 1;
 
 /** Synchronous frame/partial-frame mixer. All sample storage is allocated once. */
 export class SoundMixer {
@@ -94,13 +97,26 @@ export class SoundMixer {
       this.ayC[this.ayCount++] = block.c[i];
     }
   }
-  consume(latch: Uint8Array, offset: number, length: number): void {
+  consume(batch: FeBatch): void {
     let index = 0;
-    const end = offset + length;
-    while (offset < end) {
-      const level = latch[offset] & 16 ? 0.5 : -0.5;
-      let next = offset + 1;
-      while (next < end && (latch[next] & 16) === (latch[offset] & 16)) next++;
+    let offset = 0;
+    let value = batch.initialValue;
+    let event = 0;
+    while (offset < batch.duration) {
+      // Retain every full-byte event, but synthesize only bit-4 transitions.
+      while (event < batch.count && batch.time[event] === offset)
+        value = batch.value[event++];
+      let next = batch.duration;
+      while (event < batch.count) {
+        if ((batch.value[event] & 16) !== (value & 16)) {
+          next = batch.time[event];
+          break;
+        }
+        event++;
+      }
+      if (next < offset || next > batch.duration)
+        throw new Error("Invalid FE event timestamp");
+      const level = value & 16 ? 0.5 : -0.5;
       let units = (next - offset) * this.rate;
       while (units > 0) {
         const span = Math.min(units, SLOT_HZ - this.filled);

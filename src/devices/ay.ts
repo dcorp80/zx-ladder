@@ -1,9 +1,10 @@
 import type { Device, IoClaim } from "../machine/devices";
+import { IO_EVENT_CAPACITY, IO_MAX_BATCH_TICKS } from "../machine/ioCapture";
 
 export const AY_CLOCK_HZ = 1_750_000;
-export const AY_MAX_BATCH_TICKS = 143_360;
+export const AY_MAX_BATCH_TICKS = IO_MAX_BATCH_TICKS;
 // At maximum turbo one CPU clock is one raster slot; an I/O cycle needs 4T.
-export const AY_EVENT_CAPACITY = Math.ceil(AY_MAX_BATCH_TICKS / 4) + 1;
+export const AY_EVENT_CAPACITY = IO_EVENT_CAPACITY;
 const REGISTER_MASKS = [
   255, 15, 255, 15, 255, 15, 31, 255, 31, 31, 31, 255, 255, 15, 255,
 ];

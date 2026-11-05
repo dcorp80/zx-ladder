@@ -53,7 +53,6 @@ export interface MachineLike {
   takeElapsedTicks(): number;
   setPcmSink?(sink?: StereoSink): void;
   configureSound?(settings: SoundSettings, sampleRate: number): void;
-  setAudioSink?(sink?: (latch: Uint8Array, slotHz: number) => void): void;
   readonly tape?: { readonly status: string };
   loadTape?(bytes: Uint8Array, name: string): void | Promise<void>;
   readonly presentationVersion?: number;
@@ -477,7 +476,6 @@ export async function createAppStore(
         next.keyboard.capsSyncActive = previousKeyboard.capsSyncActive;
       }
       previousKeyboard?.releaseAll();
-      machine()?.setAudioSink?.();
       machine()?.setPcmSink?.();
       machine()?.dispose?.();
       audio.reset();
@@ -851,7 +849,6 @@ export async function createAppStore(
         machine()?.keyboard.releaseAll();
         unsubscribeKeyboard?.();
         stopLoop();
-        machine()?.setAudioSink?.();
         machine()?.setPcmSink?.();
         machine()?.dispose?.();
         audio.dispose();

@@ -2,6 +2,10 @@
 
 ## 0.2.2 — 2026-11-04
 
+- Replace per-pixel FE capture/audio scanning with a shared preallocated time/value
+  event history. Preserve repeated writes and sampling phase; expand only colour
+  changes into border spans and integrate bit-4 changes for beeper audio.
+
 - Add AY register readback, timestamped write/reset capture and fixed 1.75 MHz
   tone/noise/envelope synthesis on 128K machines. Commit CPU I/O writes once on
   nWR assertion, preserving repeated identical writes.

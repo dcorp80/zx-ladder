@@ -35,7 +35,14 @@ function routed(mode: AyStereo, channel: number, middle = 0.5) {
   const fe = new Uint8Array(112000);
   for (let i = 0; i < 15; i++) {
     mixer.captureAy(block);
-    mixer.consume(fe, 0, fe.length);
+    mixer.consume({
+      origin: 0,
+      duration: fe.length,
+      initialValue: 0,
+      time: [],
+      value: [],
+      count: 0,
+    });
   }
   return [left, right];
 }
@@ -77,7 +84,14 @@ it("bounds peak output and reuses the same PCM buffer", () => {
   });
   for (let i = 0; i < 20; i++) {
     m.captureAy({ a: ones, b: ones, c: ones, count: 128, sampleRate: 8000 });
-    m.consume(fe, 0, fe.length);
+    m.consume({
+      origin: 0,
+      duration: fe.length,
+      initialValue: 16,
+      time: [],
+      value: [],
+      count: 0,
+    });
   }
 });
 it("keeps stereo channels synchronized through overflow, reset and underrun", () => {

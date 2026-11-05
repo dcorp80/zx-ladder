@@ -159,7 +159,7 @@ it("commits at the last frame slot and never replays a held strobe next frame", 
   expect(machine.video.completed.border.at(-1)).toBe(0);
   machine.advanceFrame();
   expect(writes).toHaveLength(1);
-  expect(machine.video.completed.border[0]).toBe(0x17);
+  expect(machine.video.completed.border[0]).toBe(7);
 });
 
 it.each([0, 1])(

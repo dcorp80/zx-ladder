@@ -31,7 +31,7 @@ export interface InterruptInterval {
 export interface CapturePlanes {
   pixels: Uint8Array;
   attributes: Uint8Array;
-  /** Full FE latch sampled each 7 MHz slot; low three bits are border. */
+  /** Border colour per 7 MHz slot, expanded from FE event spans. */
   border: Uint8Array;
   /** Fixed storage: carry-in plus normal/late trigger intervals. */
   interrupts: InterruptInterval[];
@@ -42,11 +42,11 @@ export interface RasterVideo extends Device {
   readonly vPositions: Uint16Array;
   readonly advanceX: number;
   readonly completed: CapturePlanes;
-  readonly capturedBorder: Uint8Array;
   readonly hasFrame: boolean;
   fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void;
   cpuAccess(): void;
   captureBorder(position: number, latch: number): void;
+  captureBorderSpan(start: number, end: number, latch: number): void;
   /** Called only when sampled INT changes; frame clipping is internal. */
   captureInterrupt(position: number, active: boolean): void;
   finishFrame(): void;
@@ -146,9 +146,6 @@ export class TimedVideo implements RasterVideo {
       },
     ];
   }
-  get capturedBorder(): Uint8Array {
-    return this.back.border;
-  }
   get completed(): CapturePlanes {
     return this.front;
   }
@@ -172,8 +169,11 @@ export class TimedVideo implements RasterVideo {
   cpuAccess(): void {
     this.nextFetchIsPixel = true;
   }
+  captureBorderSpan(start: number, end: number, latch: number): void {
+    this.back.border.fill(latch & 7, start, end);
+  }
   captureBorder(position: number, latch: number): void {
-    this.back.border[position] = latch;
+    this.back.border[position] = latch & 7;
   }
   captureInterrupt(position: number, active: boolean): void {
     this.interruptActive = active;

@@ -298,7 +298,11 @@ One reusable display buffer is transferred at a time; missed presentation frames
 are skipped while emulation continues. The worker integrates beeper and AY on a
 shared sample clock and mixes stereo PCM. Pools of 32 reusable 256-frame buffers
 bound each audio transport stage; unavailable buffers drop PCM, never chip events.
-AY write capture uses preallocated ordinary arrays, and reset intervals may allocate.
+FE and AY write capture use preallocated ordinary arrays; reset intervals may
+allocate. FE keeps one shared full-byte time/value history for beeper and border.
+Audio integrates bit-4 transitions; rendering expands colour changes into border
+spans, with no per-pixel FE sampling or dense audio scan. Writes after a slot's
+border sampling point become effective in the next slot, preserving timing.
 The UI retains its reusable canvas ImageData, browser storage and AudioContext;
 a stereo AudioWorklet provides bounded buffering and underrun fading. The beeper
 has its own 8 kHz low-pass; final stereo output uses 20 Hz DC removal. Browser

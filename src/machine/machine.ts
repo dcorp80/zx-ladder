@@ -5,8 +5,8 @@ import {
   type SoundSettings,
   type StereoSink,
 } from "../audio/mixer";
-import { AY_MAX_BATCH_TICKS, AyDevice } from "../devices/ay";
-import { BorderDevice } from "../devices/border";
+import { AyDevice } from "../devices/ay";
+import { BorderDevice, type FeBatch } from "../devices/border";
 import { KeyboardDevice } from "../devices/keyboard";
 import { Mcu } from "../devices/mcu";
 import { BankedMemory } from "../devices/memory";
@@ -28,6 +28,7 @@ import {
 } from "./config";
 import { Counter, createCounters } from "./counters";
 import { type ClockContext, type Device, DeviceBus } from "./devices";
+import { IO_MAX_BATCH_TICKS } from "./ioCapture";
 
 export interface MachineOptions {
   rom: Uint8Array;
@@ -60,11 +61,33 @@ export class Machine implements ClockContext {
   readonly ay?: AyDevice;
   readonly aySynth?: AySynth;
   private readonly mixer: SoundMixer;
-  private audioOrigin = 0;
-  private audioFrameOffset = 0;
+  private feWriteDelay = 0;
+  private borderFrameOffset = 0;
+  private readonly consumeFe = (batch: FeBatch) => {
+    let start = 0;
+    let value = batch.initialValue & 7;
+    const offset = this.borderFrameOffset;
+    for (let i = 0; i < batch.count; i++) {
+      const color = batch.value[i] & 7;
+      if (color === value) continue;
+      const end = batch.time[i];
+      if (end > start)
+        this.video.captureBorderSpan(offset + start, offset + end, value);
+      start = end;
+      value = color;
+    }
+    if (batch.duration > start)
+      this.video.captureBorderSpan(
+        offset + start,
+        offset + batch.duration,
+        value,
+      );
+    this.borderFrameOffset += batch.duration;
+    this.mixer.consume(batch);
+  };
   /** Flush a partial audio batch before host playback state changes. */
   flushSound(): void {
-    this.flushAy();
+    this.flushAudio();
   }
   setPcmSink(sink?: StereoSink): void {
     this.mixer.setSink(sink);
@@ -77,7 +100,7 @@ export class Machine implements ClockContext {
         sampleRate > 192000
       )
         throw new RangeError("Unsupported audio sample rate");
-      this.flushAy();
+      this.flushAudio();
       this.mixer.setSampleRate(sampleRate);
       this.aySynth?.setSampleRate(sampleRate);
     }
@@ -85,7 +108,7 @@ export class Machine implements ClockContext {
   }
   /** Monotonic 7 MHz time; independent of raster rephasing and reporting deltas. */
   private elapsedTicks = 0;
-  private nextAyFlush = AY_MAX_BATCH_TICKS;
+  private nextAudioFlush = IO_MAX_BATCH_TICKS;
   private readonly screenMemory: Pick<DeviceBus, "readMemory">;
   readonly border: BorderDevice;
   readonly keyboard = new KeyboardDevice();
@@ -119,10 +142,6 @@ export class Machine implements ClockContext {
   private readValue = 255;
   private readActive = false;
   private interruptRemaining = 0;
-  private audioSink?: (latch: Uint8Array, slotHz: number) => void;
-  setAudioSink(sink?: (latch: Uint8Array, slotHz: number) => void): void {
-    this.audioSink = sink;
-  }
   private readonly extraDevices: readonly Device[];
   private readonly videoFactory: (preset: VideoPreset) => RasterVideo;
   private clocks: {
@@ -169,6 +188,7 @@ export class Machine implements ClockContext {
     this.border = new BorderDevice(
       this.config.borderPort.mask,
       this.config.borderPort.value,
+      () => this.elapsedTicks + this.feWriteDelay,
     );
     this.video = this.videoFactory(this.videoPreset);
     this.updateInterruptPosition();
@@ -218,8 +238,8 @@ export class Machine implements ClockContext {
           tick: h.tick,
         },
     );
-    this.flushAy();
-    this.audioFrameOffset = 0;
+    this.flushAudio();
+    this.borderFrameOffset = 0;
     this.videoPreset = preset;
     this.timing = rasterTiming(preset);
     this.video = video;
@@ -325,7 +345,7 @@ export class Machine implements ClockContext {
     this.tape.mount(bytes, name);
   }
 
-  private cpuEdge(): void {
+  private cpuEdge(afterBorder: boolean): void {
     this.resolveInputs();
     const b = this.cpu.bus;
     const previousM1 = b.nM1;
@@ -342,8 +362,15 @@ export class Machine implements ClockContext {
       b.nBUSACK === 1 &&
       b.addr !== undefined &&
       b.data !== undefined
-    )
-      this.bus.writeIo(b.addr, b.data);
+    ) {
+      // FE takes effect at its next raster sample. AY retains the I/O edge tick.
+      this.feWriteDelay = afterBorder ? 1 : 0;
+      try {
+        this.bus.writeIo(b.addr, b.data);
+      } finally {
+        this.feWriteDelay = 0;
+      }
+    }
     // Latch the requested divider on M1 deassertion. The current pixel slot
     // finishes its scheduled edges; the next slot uses the new divider.
     if (previousM1 === 0 && this.cpu.bus.nM1 === 1)
@@ -356,17 +383,10 @@ export class Machine implements ClockContext {
     this.counters[Counter.cpuEdges]++;
   }
 
-  private flushAy(): void {
+  private flushAudio(): void {
     this.ay?.flush();
-    const length = this.elapsedTicks - this.audioOrigin;
-    this.mixer.consume(
-      this.video.capturedBorder,
-      this.audioFrameOffset,
-      length,
-    );
-    this.audioFrameOffset += length;
-    this.audioOrigin = this.elapsedTicks;
-    this.nextAyFlush = this.elapsedTicks + AY_MAX_BATCH_TICKS;
+    this.border.flush(this.elapsedTicks, this.consumeFe);
+    this.nextAudioFlush = this.elapsedTicks + IO_MAX_BATCH_TICKS;
   }
 
   /** One resumable loop; each iteration is exactly one 7 MHz raster slot. */
@@ -424,9 +444,8 @@ export class Machine implements ClockContext {
 
         // Observe before the CPU edges: their request is serviced next slot.
         this.previousMreq = b.nMREQ;
-        if (this.turbo) this.cpuEdge();
+        if (this.turbo) this.cpuEdge(false);
         this.resolveInputs();
-        video.captureBorder(position, this.border.value);
         // Retain the former per-pixel sampling phase, including turbo ACKs.
         const interrupt = this.cpu.bus.nINT === 0;
         if (interrupt !== this.sampledInterrupt) {
@@ -434,7 +453,7 @@ export class Machine implements ClockContext {
           this.sampledInterrupt = interrupt;
         }
         if (this.cpu.bus.nHALT === 0) this.haltedSlots++;
-        this.cpuEdge();
+        this.cpuEdge(true);
         if (this.interruptRemaining > 0) this.interruptRemaining--;
         position++;
         this.elapsedTicks++;
@@ -450,15 +469,14 @@ export class Machine implements ClockContext {
             this.haltedSlots = 0;
             this.loadSampleFrames = 0;
           }
-          this.flushAy();
-          this.audioFrameOffset = 0;
+          this.flushAudio();
+          this.borderFrameOffset = 0;
           video.finishFrame();
-          this.audioSink?.(video.completed.border, this.config.slotHz);
           this.keyboard.advanceFrame();
           this.tape.frame();
           if (this.cpu.bus.nRESET !== 0) this.capsLock.advanceFrame();
           counters[Counter.frames]++;
-        } else if (this.elapsedTicks === this.nextAyFlush) this.flushAy();
+        } else if (this.elapsedTicks === this.nextAudioFlush) this.flushAudio();
       }
       return this.frameCount - framesBefore;
     } finally {

@@ -61,9 +61,16 @@ it("captures CPU FE writes across the full raster and delivers every frame", () 
   rom.set([0x3e, 0x17, 0xd3, 0xfe, 0x76]); // LD A,17; OUT (FE),A; HALT
   const m = createMachine({ rom });
   const captures: Uint8Array[] = [];
-  m.setAudioSink((latch, hz) => {
-    expect(hz).toBe(7000000);
-    captures.push(latch.slice());
+  m.border.setSink((batch) => {
+    const latch = new Uint8Array(batch.duration);
+    let value = batch.initialValue,
+      event = 0;
+    for (let tick = 0; tick < latch.length; tick++) {
+      while (event < batch.count && batch.time[event] === tick)
+        value = batch.value[event++];
+      latch[tick] = value;
+    }
+    captures.push(latch);
   });
   m.advanceFrame();
   m.advanceFrame();
