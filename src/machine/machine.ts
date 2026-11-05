@@ -1,4 +1,5 @@
 import { Z80Cpu } from "@dcorp80/z80cpu";
+import { AY_MAX_BATCH_TICKS, AyDevice } from "../devices/ay";
 import { BorderDevice } from "../devices/border";
 import { KeyboardDevice } from "../devices/keyboard";
 import { Mcu } from "../devices/mcu";
@@ -50,6 +51,10 @@ export class Machine implements ClockContext {
   readonly cpu = new Z80Cpu();
   readonly memory: BankedMemory;
   readonly mcu: Mcu;
+  readonly ay?: AyDevice;
+  /** Monotonic 7 MHz time; independent of raster rephasing and reporting deltas. */
+  private elapsedTicks = 0;
+  private nextAyFlush = AY_MAX_BATCH_TICKS;
   private readonly screenMemory: Pick<DeviceBus, "readMemory">;
   readonly border: BorderDevice;
   readonly keyboard = new KeyboardDevice();
@@ -106,6 +111,7 @@ export class Machine implements ClockContext {
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
     this.memory = new BankedMemory(options.rom);
+    if (this.memory.expanded) this.ay = new AyDevice(() => this.elapsedTicks);
     this.config = this.memory.expanded
       ? {
           ...MACHINE_CONFIG,
@@ -129,6 +135,7 @@ export class Machine implements ClockContext {
     this.bus = new DeviceBus([
       this.memory,
       ...(this.memory.expanded ? [this.mcu] : []),
+      ...(this.ay ? [this.ay] : []),
       this.border,
       this.keyboard,
       this.portFeInput,
@@ -156,6 +163,7 @@ export class Machine implements ClockContext {
     const bus = new DeviceBus([
       this.memory,
       ...(this.memory.expanded ? [this.mcu] : []),
+      ...(this.ay ? [this.ay] : []),
       this.border,
       this.keyboard,
       this.portFeInput,
@@ -170,6 +178,7 @@ export class Machine implements ClockContext {
           tick: h.tick,
         },
     );
+    this.flushAy();
     this.videoPreset = preset;
     this.timing = rasterTiming(preset);
     this.video = video;
@@ -256,6 +265,7 @@ export class Machine implements ClockContext {
     }
     this.resetHeld = pressed;
     this.cpu.bus.nRESET = this.resetHeld || this.resetHalfCycles > 0 ? 0 : 1;
+    this.ay?.setReset(this.cpu.bus.nRESET === 0);
   }
 
   loadTape(bytes: Uint8Array, name: string): void {
@@ -298,8 +308,16 @@ export class Machine implements ClockContext {
     if (previousM1 === 0 && this.cpu.bus.nM1 === 1)
       this.turbo = this.requestedTurbo;
     if (this.resetHalfCycles > 0) this.resetHalfCycles--;
-    if (!this.resetHeld && this.resetHalfCycles === 0) this.cpu.bus.nRESET = 1;
+    if (!this.resetHeld && this.resetHalfCycles === 0 && b.nRESET === 0) {
+      b.nRESET = 1;
+      this.ay?.setReset(false);
+    }
     this.counters[Counter.cpuEdges]++;
+  }
+
+  private flushAy(): void {
+    this.ay?.flush();
+    this.nextAyFlush = this.elapsedTicks + AY_MAX_BATCH_TICKS;
   }
 
   /** One resumable loop; each iteration is exactly one 7 MHz raster slot. */
@@ -370,6 +388,7 @@ export class Machine implements ClockContext {
         this.cpuEdge();
         if (this.interruptRemaining > 0) this.interruptRemaining--;
         position++;
+        this.elapsedTicks++;
         this.framePosition = position;
         count--;
         if (position === pixelsPerFrame) {
@@ -383,12 +402,14 @@ export class Machine implements ClockContext {
             this.loadSampleFrames = 0;
           }
           video.finishFrame();
+          this.flushAy();
           this.audioSink?.(video.completed.border, this.config.slotHz);
           this.keyboard.advanceFrame();
           this.tape.frame();
           if (this.cpu.bus.nRESET !== 0) this.capsLock.advanceFrame();
           counters[Counter.frames]++;
-        }
+        } else if (this.ay && this.elapsedTicks === this.nextAyFlush)
+          this.flushAy();
       }
       return this.frameCount - framesBefore;
     } finally {
