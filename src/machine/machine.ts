@@ -136,6 +136,7 @@ export class Machine implements ClockContext {
   /** Active fraction over the last completed sampling window, in percent. */
   cpuLoad: number | null = null;
   private requestedTurbo: boolean;
+  private coldClock = true;
   private resetHeld = false;
   private resetHalfCycles = 0;
   private previousMreq: 0 | 1 | undefined = 1;
@@ -408,6 +409,13 @@ export class Machine implements ClockContext {
     const requested = count;
     let position = this.framePosition;
     try {
+      if (count > 0 && this.coldClock) {
+        this.coldClock = false;
+        // The core's first edge is rising. At 3.5 MHz it belongs to the
+        // opening boundary of slot zero; the final edge is then falling.
+        // Turbo already supplies that opening edge in the slot loop.
+        if (!this.turbo) this.cpuEdge(false);
+      }
       while (count > 0) {
         const symbolIndex = position >>> 3;
         counters[Counter.h] = hPositions[position % width];

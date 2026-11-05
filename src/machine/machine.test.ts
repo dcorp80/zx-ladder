@@ -104,7 +104,8 @@ it.each([false, true])(
     expect(m.cpu.snapshot().main.a).toBe(42);
     expect(m.border.color).toBe(2);
     expect(m.cpu.bus.nHALT).toBe(0);
-    expect(m.counters[Counter.cpuEdges]).toBe(cpu7 ? 400 : 200);
+    // Normal cold start includes the rising edge at the opening boundary.
+    expect(m.counters[Counter.cpuEdges]).toBe(cpu7 ? 400 : 201);
   },
 );
 
@@ -237,7 +238,7 @@ it.each([false, true])(
     m.setReset(true);
     m.setReset(false);
     expect(m.cpu.bus.nRESET).toBe(0);
-    m.advancePixels(cpu7 ? 3 : 6);
+    m.advancePixels(cpu7 ? 3 : 5);
     expect(levels).toEqual([0, 0, 0, 0, 0, 0]);
     expect(m.cpu.bus.nRESET).toBe(1);
     m.advancePixels(1);
