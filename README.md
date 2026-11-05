@@ -5,7 +5,7 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.2.2** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.2.3** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.

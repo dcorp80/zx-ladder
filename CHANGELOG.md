@@ -1,9 +1,13 @@
 # Changelog
 
-## 0.2.2 — 2026-11-04
+## 0.2.3 — 2026-11-05
 
 - Use loose 128K/Pentagon paging and AY port decoding, supporting demo aliases
   used by Rage and EyeAche. Retain the explicit low-byte FD paging override.
+- Align the cold-start 3.5 MHz CPU clock with raster boundaries, removing the
+  one-pixel border-to-paper gap in pent128.tap.
+
+## 0.2.2 — 2026-11-04
 
 - Replace per-pixel FE capture/audio scanning with a shared preallocated time/value
   event history. Preserve repeated writes and sampling phase; expand only colour
