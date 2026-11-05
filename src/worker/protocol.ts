@@ -1,3 +1,4 @@
+import type { SoundSettings } from "../audio/mixer";
 import type { SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import type { VideoPreset } from "../devices/videoPresets";
@@ -11,6 +12,7 @@ export type KeyboardCommand =
   | { action: "capsActive"; value: boolean }
   | { action: "capsToggle" };
 export type Command =
+  | { type: "sound"; settings: SoundSettings; sampleRate: number }
   | {
       type: "init";
       rom: Uint8Array;
@@ -43,7 +45,7 @@ export type ToWorker =
   | {
       recycle: "frame" | "audio";
       presented?: boolean;
-      bytes: Uint8Array | Uint8ClampedArray;
+      bytes: Uint8Array | Uint8ClampedArray | Float32Array;
     };
 export interface MachineState {
   frameCount: number;
@@ -71,9 +73,9 @@ export type FromWorker =
   | {
       type: "audio";
       epoch: number;
-      bytes: Uint8Array;
+      bytes: Float32Array;
       length: number;
-      slotHz: number;
+      sampleRate: number;
     }
   | {
       type: "reply";

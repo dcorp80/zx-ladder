@@ -233,3 +233,44 @@ it("routes live paging decode changes to the worker and keeps page contents", ()
     h.engine.dispose();
   }
 });
+
+it("recycles bounded stereo PCM buffers and keeps executing when playback is backpressured", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  const h = harness();
+  try {
+    h.send({ type: "audio", value: true }, 1);
+    h.send({ type: "run", value: true }, 1);
+    vi.advanceTimersByTime(400);
+    const audio = h.messages.filter((m) => m.type === "audio");
+    expect(audio).toHaveLength(32);
+    expect(
+      audio.every(
+        (m) =>
+          ArrayBuffer.isView(m.bytes) &&
+          m.length <= 256 &&
+          m.sampleRate === 48000,
+      ),
+    ).toBe(true);
+    const before = h.ticks();
+    vi.advanceTimersByTime(100);
+    expect(h.ticks()).toBeGreaterThan(before);
+    expect(h.messages.filter((m) => m.type === "audio")).toHaveLength(32);
+    const recycled = audio[0];
+    h.engine.receive(
+      structuredClone(
+        { recycle: "audio" as const, bytes: recycled.bytes },
+        { transfer: [recycled.bytes.buffer] },
+      ),
+    );
+    expect(recycled.bytes.byteLength).toBe(0);
+    vi.advanceTimersByTime(40);
+    expect(h.messages.filter((m) => m.type === "audio")).toHaveLength(33);
+    h.send({ type: "run", value: false }, 2);
+    const paused = h.messages.filter((m) => m.type === "audio").length;
+    vi.advanceTimersByTime(50);
+    expect(h.messages.filter((m) => m.type === "audio")).toHaveLength(paused);
+    expect(h.messages.some((m) => m.type === "error")).toBe(false);
+  } finally {
+    h.engine.dispose();
+  }
+});

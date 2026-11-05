@@ -34,7 +34,7 @@ bundled 128K ROM boot; use exact 7FFD for that firmware. Warm reset clears pagin
 Video fetches physical screen RAM independently of CPU mappings and CPU address
 interceptors, retaining the existing slot arbitration and captured fetch latches.
 Flash loading supports the bundled 128K Tape Loader menu and the standard 48K
-loader. AY sound and tape pulse playback remain unavailable.
+loader. AY sound is available on 128K machines; tape pulse playback remains unavailable.
 
 
 Video preset, Turbo, Free run, border visibility, and theme are saved in
@@ -104,7 +104,15 @@ read returns `0x1F`; unclaimed odd ports still return `0xFF`. The bus supports d
 inhibition for shared ports. State-changing I/O commit notifications and a
 general device/UI adapter registry remain future work.
 
-This version supports the FE bit-4 beeper. Tape pulse playback, AY audio, and contention are not implemented. Beeper volume defaults to 20%; saved preferences are preserved.
+Sound supports the FE bit-4 beeper and AY-3-8912 on 128K machines. AY uses exact
+FFFD register selection/readback and BFFD data writes, with a fixed 1.75 MHz clock
+independent of CPU turbo. Sound controls include independent Beeper/AY enable and
+volume, ABC/ACB/Mono routing, and middle-channel contribution to each speaker.
+Both volumes default to 20%; middle contribution defaults to 50%. Preferences
+persist. AY enable mutes playback without removing the chip or stopping its state.
+Gain and routing changes are smoothed. Volume levels use an ideal logarithmic
+approximation rather than a measured analog output model. Tape pulse playback
+and memory contention remain unimplemented.
 The initial video wiring uses two V-sync lines for Pentagon and four for
 Lviv, and ignores V8 in screen RAM
 addressing; off-screen wiring and border-effect alignment remain to be
@@ -283,14 +291,18 @@ PC and position, while CPU load retains its latest completed-window average.
 The Ticks meter counts elapsed 7 MHz raster slots, independently of CPU turbo.
 Execution chunks report processed-slot deltas; the UI adds each delta once,
 including work from discarded video frames. Video-preset changes and warm reset
-preserve the total; cold boot clears it. No global pixel counter is incremented
-inside the per-slot loop.
+preserve the total; cold boot clears it. A separate machine-local monotonic slot counter timestamps audio capture across
+raster rephasing.
 
 One reusable display buffer is transferred at a time; missed presentation frames
-are skipped while emulation continues. Audio capture uses a three-buffer pool.
+are skipped while emulation continues. The worker integrates beeper and AY on a
+shared sample clock and mixes stereo PCM. Pools of 32 reusable 256-frame buffers
+bound each audio transport stage; unavailable buffers drop PCM, never chip events.
+AY write capture uses preallocated ordinary arrays, and reset intervals may allocate.
 The UI retains its reusable canvas ImageData, browser storage and AudioContext;
-beeper resampling remains in the audio adapter, and playback stays in the
-AudioWorklet. No SharedArrayBuffer or cross-origin-isolation headers are needed.
+a stereo AudioWorklet provides bounded buffering and underrun fading. The beeper
+has its own 8 kHz low-pass; final stereo output uses 20 Hz DC removal. Browser
+sample rates from 8 to 192 kHz are supported. No SharedArrayBuffer or cross-origin-isolation headers are needed.
 
 The worker adapter exposes acknowledged pause, raster-slot stepping and coherent
 memory inspection. CPU instruction/half-cycle stepping, breakpoints and a

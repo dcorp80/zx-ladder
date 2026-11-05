@@ -1,3 +1,4 @@
+import { PCM_BLOCK_FRAMES } from "../audio/mixer";
 import { KEY_ROWS } from "../devices/keyboard";
 import { createMachine, type Machine } from "../machine/machine";
 import { createHostLoop, type HostLoop } from "../runloop/hostLoop";
@@ -30,9 +31,9 @@ export class WorkerEngine {
     callback: (timestamp?: number) => void;
   };
 
-  private readonly audioBuffers: Uint8Array[] = Array.from(
-    { length: 3 },
-    () => new Uint8Array(448 * 320),
+  private readonly audioBuffers: Float32Array[] = Array.from(
+    { length: 32 },
+    () => new Float32Array(PCM_BLOCK_FRAMES * 2),
   );
   constructor(
     private readonly send: (
@@ -146,8 +147,8 @@ export class WorkerEngine {
             ? (message.bytes as Uint8ClampedArray)
             : new Uint8ClampedArray(length);
         if (!this.running) this.update(true);
-      } else if (this.audioBuffers.length < 3)
-        this.audioBuffers.push(message.bytes as Uint8Array);
+      } else if (this.audioBuffers.length < 32)
+        this.audioBuffers.push(message.bytes as Float32Array);
       return;
     }
     try {
@@ -161,6 +162,8 @@ export class WorkerEngine {
     }
   }
   private execute({ id, epoch, command: c }: Request): void {
+    // Finish partial capture under its old epoch; the client rejects stale PCM.
+    if (epoch !== this.epoch) this.machine?.flushSound();
     this.epoch = epoch;
     if (c.type === "init") {
       this.machine = createMachine({
@@ -173,19 +176,19 @@ export class WorkerEngine {
       this.frameBuffer = new Uint8ClampedArray(
         this.machine.width * this.machine.height * 4,
       );
-      this.machine.setAudioSink((latch, slotHz) => {
+      this.machine.setPcmSink((samples, frames, sampleRate) => {
         if (!this.audio || !this.running || !this.visible || this.freeRun)
           return;
         const bytes = this.audioBuffers.pop();
         if (!bytes) return; // Bounded audio backlog; never stall CPU execution.
-        bytes.set(latch);
+        bytes.set(samples);
         this.send(
           {
             type: "audio",
             epoch: this.epoch,
             bytes,
-            length: latch.length,
-            slotHz,
+            length: frames,
+            sampleRate,
           },
           [bytes.buffer],
         );
@@ -233,6 +236,9 @@ export class WorkerEngine {
         case "freeRun":
           this.freeRun = c.value;
           this.fps = null;
+          break;
+        case "sound":
+          m.configureSound(c.settings, c.sampleRate);
           break;
         case "audio":
           this.audio = c.value;

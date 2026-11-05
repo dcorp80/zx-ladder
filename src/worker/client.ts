@@ -1,3 +1,4 @@
+import type { SoundSettings, StereoSink } from "../audio/mixer";
 import { KeyboardDevice, type SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import {
@@ -107,7 +108,7 @@ export class WorkerMachine implements MachineLike {
       reject: (error: Error) => void;
     }
   >();
-  private sink?: (latch: Uint8Array, slotHz: number) => void;
+  private pcmSink?: StereoSink;
   private audioEnabled = false;
   private freeRun = false;
   private border = true;
@@ -235,10 +236,7 @@ export class WorkerMachine implements MachineLike {
           this.running &&
           !this.freeRun
         )
-          this.sink?.(
-            message.bytes.subarray(0, message.length),
-            message.slotHz,
-          );
+          this.pcmSink?.(message.bytes, message.length, message.sampleRate);
       } finally {
         this.worker.postMessage({ recycle: "audio", bytes: message.bytes }, [
           message.bytes.buffer,
@@ -290,12 +288,16 @@ export class WorkerMachine implements MachineLike {
       isRunning: () => this.running,
     };
   }
-  setAudioSink(sink?: (latch: Uint8Array, slotHz: number) => void): void {
-    this.sink = sink;
+  setPcmSink(sink?: StereoSink): void {
+    this.pcmSink = sink;
+  }
+  configureSound(settings: SoundSettings, sampleRate: number): void {
+    this.fire({ type: "sound", settings, sampleRate });
   }
   setAudioEnabled(value: boolean): void {
     if (value !== this.audioEnabled) {
       this.audioEnabled = value;
+      this.epoch++;
       this.fire({ type: "audio", value });
     }
   }

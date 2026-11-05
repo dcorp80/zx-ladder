@@ -2,6 +2,13 @@
 
 ## 0.2.2 — 2026-11-04
 
+- Add AY register readback, timestamped write/reset capture and fixed 1.75 MHz
+  tone/noise/envelope synthesis on 128K machines. Commit CPU I/O writes once on
+  nWR assertion, preserving repeated identical writes.
+- Add AY enable, ABC/ACB/Mono stereo, volume and middle-channel mix controls.
+  Mix beeper and AY in the worker at the host sample rate; recycle bounded stereo
+  PCM buffers through AudioWorklet. Muting and backpressure preserve chip history.
+
 - Support flash loading from the bundled 128K Tape Loader menu through real
   keyboard input and CPU returns. Preserve mounted tape position across ROM
   paging and load into the selected RAM bank. Honor TZX 48K-only stops by model.

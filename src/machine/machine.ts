@@ -1,5 +1,10 @@
 import { Z80Cpu } from "@dcorp80/z80cpu";
 import { AySynth } from "../audio/aySynth";
+import {
+  SoundMixer,
+  type SoundSettings,
+  type StereoSink,
+} from "../audio/mixer";
 import { AY_MAX_BATCH_TICKS, AyDevice } from "../devices/ay";
 import { BorderDevice } from "../devices/border";
 import { KeyboardDevice } from "../devices/keyboard";
@@ -54,6 +59,30 @@ export class Machine implements ClockContext {
   readonly mcu: Mcu;
   readonly ay?: AyDevice;
   readonly aySynth?: AySynth;
+  private readonly mixer: SoundMixer;
+  private audioOrigin = 0;
+  private audioFrameOffset = 0;
+  /** Flush a partial audio batch before host playback state changes. */
+  flushSound(): void {
+    this.flushAy();
+  }
+  setPcmSink(sink?: StereoSink): void {
+    this.mixer.setSink(sink);
+  }
+  configureSound(settings: SoundSettings, sampleRate: number): void {
+    if (sampleRate !== this.mixer.sampleRate) {
+      if (
+        !Number.isSafeInteger(sampleRate) ||
+        sampleRate < 8000 ||
+        sampleRate > 192000
+      )
+        throw new RangeError("Unsupported audio sample rate");
+      this.flushAy();
+      this.mixer.setSampleRate(sampleRate);
+      this.aySynth?.setSampleRate(sampleRate);
+    }
+    this.mixer.configure(settings);
+  }
   /** Monotonic 7 MHz time; independent of raster rephasing and reporting deltas. */
   private elapsedTicks = 0;
   private nextAyFlush = AY_MAX_BATCH_TICKS;
@@ -113,9 +142,11 @@ export class Machine implements ClockContext {
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
     this.memory = new BankedMemory(options.rom);
+    this.mixer = new SoundMixer(this.memory.expanded);
     if (this.memory.expanded) {
       const synth = new AySynth();
       this.aySynth = synth;
+      synth.setSink((block) => this.mixer.captureAy(block));
       this.ay = new AyDevice(
         () => this.elapsedTicks,
         (batch) => synth.process(batch),
@@ -188,6 +219,7 @@ export class Machine implements ClockContext {
         },
     );
     this.flushAy();
+    this.audioFrameOffset = 0;
     this.videoPreset = preset;
     this.timing = rasterTiming(preset);
     this.video = video;
@@ -326,6 +358,14 @@ export class Machine implements ClockContext {
 
   private flushAy(): void {
     this.ay?.flush();
+    const length = this.elapsedTicks - this.audioOrigin;
+    this.mixer.consume(
+      this.video.capturedBorder,
+      this.audioFrameOffset,
+      length,
+    );
+    this.audioFrameOffset += length;
+    this.audioOrigin = this.elapsedTicks;
     this.nextAyFlush = this.elapsedTicks + AY_MAX_BATCH_TICKS;
   }
 
@@ -410,15 +450,15 @@ export class Machine implements ClockContext {
             this.haltedSlots = 0;
             this.loadSampleFrames = 0;
           }
-          video.finishFrame();
           this.flushAy();
+          this.audioFrameOffset = 0;
+          video.finishFrame();
           this.audioSink?.(video.completed.border, this.config.slotHz);
           this.keyboard.advanceFrame();
           this.tape.frame();
           if (this.cpu.bus.nRESET !== 0) this.capsLock.advanceFrame();
           counters[Counter.frames]++;
-        } else if (this.ay && this.elapsedTicks === this.nextAyFlush)
-          this.flushAy();
+        } else if (this.elapsedTicks === this.nextAyFlush) this.flushAy();
       }
       return this.frameCount - framesBefore;
     } finally {

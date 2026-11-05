@@ -1,3 +1,4 @@
+import type { AyStereo } from "../audio/mixer";
 import { PENTAGON_VIDEO_PRESET, VIDEO_PRESETS } from "../devices/videoPresets";
 import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 
@@ -15,6 +16,10 @@ export interface AppConfig {
   keyboardColor: "theme" | "light" | "dark";
   soundEnabled: boolean;
   volume: number;
+  ayEnabled: boolean;
+  ayVolume: number;
+  ayStereo: AyStereo;
+  ayMiddle: number;
   theme: Theme;
   keyboardLayout: string;
   keyboardProfile: string;
@@ -52,6 +57,19 @@ export function sanitizeConfig(value: unknown): AppConfig {
       typeof config.volume === "number" && Number.isFinite(config.volume)
         ? Math.max(0, Math.min(1, config.volume))
         : 0.2,
+    ayEnabled: typeof config.ayEnabled === "boolean" ? config.ayEnabled : true,
+    ayVolume:
+      typeof config.ayVolume === "number" && Number.isFinite(config.ayVolume)
+        ? Math.max(0, Math.min(1, config.ayVolume))
+        : 0.2,
+    ayMiddle:
+      typeof config.ayMiddle === "number" && Number.isFinite(config.ayMiddle)
+        ? Math.max(0, Math.min(1, config.ayMiddle))
+        : 0.5,
+    ayStereo:
+      config.ayStereo === "ACB" || config.ayStereo === "Mono"
+        ? config.ayStereo
+        : "ABC",
     theme: sanitizeTheme(config.theme),
     keyboardLayout: isKeyboardLayout(config.keyboardLayout)
       ? config.keyboardLayout

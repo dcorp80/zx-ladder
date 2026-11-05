@@ -1,4 +1,4 @@
-import { PcmQueue } from "./pcmQueue";
+import { StereoQueue } from "./stereoQueue";
 
 declare const sampleRate: number;
 declare class AudioWorkletProcessor {
@@ -8,8 +8,8 @@ declare function registerProcessor(
   name: string,
   processor: typeof AudioWorkletProcessor,
 ): void;
-class BeeperProcessor extends AudioWorkletProcessor {
-  private readonly queue = new PcmQueue(sampleRate);
+class SoundProcessor extends AudioWorkletProcessor {
+  private readonly queue = new StereoQueue(sampleRate);
   constructor() {
     super();
     this.port.onmessage = ({ data }) => {
@@ -18,18 +18,22 @@ class BeeperProcessor extends AudioWorkletProcessor {
         data.type === "samples" &&
         data.samples instanceof Float32Array
       ) {
-        this.queue.push(data.samples);
-        this.port.postMessage({
-          type: "accepted",
-          generation: data.generation,
-        });
+        this.queue.push(data.samples, data.frames);
+        this.port.postMessage(
+          {
+            type: "accepted",
+            samples: data.samples,
+            generation: data.generation,
+          },
+          [data.samples.buffer],
+        );
       }
     };
   }
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
-    const output = outputs[0]?.[0];
-    if (output) this.queue.render(output);
+    const output = outputs[0];
+    if (output?.[0] && output[1]) this.queue.render(output[0], output[1]);
     return true;
   }
 }
-registerProcessor("ladder-beeper", BeeperProcessor);
+registerProcessor("ladder-sound", SoundProcessor);

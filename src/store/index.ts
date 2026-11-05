@@ -7,7 +7,8 @@ import {
   untrack,
   useContext,
 } from "solid-js";
-import { BeeperOutput } from "../audio/output";
+import type { AyStereo, SoundSettings, StereoSink } from "../audio/mixer";
+import { SoundOutput } from "../audio/output";
 import type { KeyboardDevice } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import {
@@ -50,6 +51,8 @@ export const MACHINE_METER_REFRESH_MS = 320;
 /** The part of the machine contract the UI needs. */
 export interface MachineLike {
   takeElapsedTicks(): number;
+  setPcmSink?(sink?: StereoSink): void;
+  configureSound?(settings: SoundSettings, sampleRate: number): void;
   setAudioSink?(sink?: (latch: Uint8Array, slotHz: number) => void): void;
   readonly tape?: { readonly status: string };
   loadTape?(bytes: Uint8Array, name: string): void | Promise<void>;
@@ -131,6 +134,14 @@ export interface Store {
   setKeyboardColor(value: "theme" | "light" | "dark"): void;
   readonly soundEnabled: Accessor<boolean>;
   readonly volume: Accessor<number>;
+  readonly ayEnabled: Accessor<boolean>;
+  readonly ayVolume: Accessor<number>;
+  readonly ayStereo: Accessor<AyStereo>;
+  readonly ayMiddle: Accessor<number>;
+  setAyEnabled(value: boolean): void;
+  setAyVolume(value: number): void;
+  setAyStereo(value: AyStereo): void;
+  setAyMiddle(value: number): void;
   readonly audioStatus: Accessor<string>;
   setSoundEnabled(value: boolean): void;
   setVolume(value: number): void;
@@ -292,16 +303,35 @@ export async function createAppStore(
     );
     const [soundEnabled, setSoundEnabled] = createSignal(config.soundEnabled);
     const [volume, setVolume] = createSignal(config.volume);
+    const [ayEnabled, setAyEnabled] = createSignal(config.ayEnabled);
+    const [ayVolume, setAyVolume] = createSignal(config.ayVolume);
+    const [ayStereo, setAyStereo] = createSignal<AyStereo>(config.ayStereo);
+    const [ayMiddle, setAyMiddle] = createSignal(config.ayMiddle);
+    const [sampleRate, setSampleRate] = createSignal(48000);
     const [audioStatus, setAudioStatus] = createSignal(
       "Click or press a key to enable audio",
     );
-    const audio = new BeeperOutput(setAudioStatus);
+    const audio = new SoundOutput(setAudioStatus, setSampleRate);
     createEffect(() => {
-      audio.setPlaying(soundEnabled() && isRunning() && !freeRun());
-      audio.setVolume(volume());
+      audio.setPlaying(
+        (soundEnabled() || ayEnabled()) && isRunning() && !freeRun(),
+      );
       const active = machine();
+      active?.configureSound?.(
+        {
+          beeperEnabled: soundEnabled(),
+          beeperVolume: volume(),
+          ayEnabled: ayEnabled(),
+          ayVolume: ayVolume(),
+          ayStereo: ayStereo(),
+          ayMiddle: ayMiddle(),
+        },
+        sampleRate(),
+      );
       if (active instanceof WorkerMachine) {
-        active.setAudioEnabled(soundEnabled() && isRunning() && !freeRun());
+        active.setAudioEnabled(
+          (soundEnabled() || ayEnabled()) && isRunning() && !freeRun(),
+        );
         active.setFreeRun(freeRun());
         active.setShowBorder(showBorder());
       }
@@ -314,6 +344,10 @@ export async function createAppStore(
           keyboardColor: keyboardColor(),
           soundEnabled: soundEnabled(),
           volume: volume(),
+          ayEnabled: ayEnabled(),
+          ayVolume: ayVolume(),
+          ayStereo: ayStereo(),
+          ayMiddle: ayMiddle(),
           videoPreset: videoPreset().id,
           turbo: turbo(),
           decodeFd: decodeFd(),
@@ -444,9 +478,12 @@ export async function createAppStore(
       }
       previousKeyboard?.releaseAll();
       machine()?.setAudioSink?.();
+      machine()?.setPcmSink?.();
       machine()?.dispose?.();
       audio.reset();
-      next.setAudioSink?.((latch, slotHz) => audio.consumeFrame(latch, slotHz));
+      next.setPcmSink?.((samples, frames, rate) =>
+        audio.consume(samples, frames, rate),
+      );
       setMachine(next);
       unsubscribeKeyboard = next.keyboard.subscribe(() =>
         setKeyboardVersion((v) => v + 1),
@@ -511,9 +548,30 @@ export async function createAppStore(
       },
       soundEnabled,
       volume,
+      ayEnabled,
+      ayVolume,
+      ayStereo,
+      ayMiddle,
+      setAyEnabled(value) {
+        setAyEnabled(value);
+        persistConfig();
+        if (value) void audio.unlock();
+      },
+      setAyVolume(value) {
+        setAyVolume(Math.max(0, Math.min(1, value)));
+        persistConfig();
+      },
+      setAyStereo(value) {
+        setAyStereo(value);
+        persistConfig();
+      },
+      setAyMiddle(value) {
+        setAyMiddle(Math.max(0, Math.min(1, value)));
+        persistConfig();
+      },
       audioStatus,
       unlockAudio() {
-        if (soundEnabled()) void audio.unlock();
+        if (soundEnabled() || ayEnabled()) void audio.unlock();
       },
       setSoundEnabled(value) {
         setSoundEnabled(value);
@@ -794,6 +852,7 @@ export async function createAppStore(
         unsubscribeKeyboard?.();
         stopLoop();
         machine()?.setAudioSink?.();
+        machine()?.setPcmSink?.();
         machine()?.dispose?.();
         audio.dispose();
         disposeRoot?.();

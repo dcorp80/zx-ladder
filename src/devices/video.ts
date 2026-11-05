@@ -42,6 +42,7 @@ export interface RasterVideo extends Device {
   readonly vPositions: Uint16Array;
   readonly advanceX: number;
   readonly completed: CapturePlanes;
+  readonly capturedBorder: Uint8Array;
   readonly hasFrame: boolean;
   fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void;
   cpuAccess(): void;
@@ -144,6 +145,9 @@ export class TimedVideo implements RasterVideo {
         },
       },
     ];
+  }
+  get capturedBorder(): Uint8Array {
+    return this.back.border;
   }
   get completed(): CapturePlanes {
     return this.front;
