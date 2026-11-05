@@ -83,7 +83,7 @@ const VideoCanvas: Component<{
         <div class="canvas-placeholder">
           {store.machine()
             ? "Run or step a frame to display the selected video preset."
-            : "Choose a 16 KiB ROM, then run or step the machine."}
+            : "Choose a ROM, then run or step the machine."}
         </div>
       )}
     </div>

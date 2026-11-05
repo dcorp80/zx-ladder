@@ -12,7 +12,7 @@ type Node =
  * Layouts: https://worldofspectrum.net/TZXformat.html (v1.20).
  * Parse first, then resolve control flow with bounded execution and output.
  */
-export function parseTzx(bytes: Uint8Array): TapBlock[] {
+export function parseTzx(bytes: Uint8Array, is128 = false): TapBlock[] {
   let p = 0;
   const take = (length: number): Uint8Array => {
     if (length > bytes.length - p)
@@ -96,8 +96,8 @@ export function parseTzx(bytes: Uint8Array): TapBlock[] {
         break;
       case 0x2a:
         if (number(4) !== 0) throw new Error("Invalid TZX 48K stop block.");
-        node = { kind: "stop" };
-        break; // Ladder currently models 48K RAM
+        node = { kind: is128 ? "skip" : "stop" };
+        break;
       case 0x2b:
         if (number(4) !== 1 || number(1) > 1)
           throw new Error("Invalid TZX signal-level block.");

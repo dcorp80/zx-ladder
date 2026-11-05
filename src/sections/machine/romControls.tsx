@@ -1,15 +1,15 @@
-import { type Component, Show } from "solid-js";
-import { ROM_SIZE } from "../../storage/types";
+import { type Component, createSignal, Show } from "solid-js";
 import { useStore } from "../../store";
 
 export const RomControls: Component = () => {
   const store = useStore();
   let input!: HTMLInputElement;
+  const [as128, setAs128] = createSignal(false);
 
   const chooseFile = () => {
     const file = input.files?.[0];
     if (!file) return;
-    void store.importRom(file).finally(() => {
+    void store.importRom(file, as128()).finally(() => {
       input.value = "";
     });
   };
@@ -34,6 +34,21 @@ export const RomControls: Component = () => {
       </div>
       <div class="rom-layout">
         <div class="rom-picker-row">
+          <select
+            aria-label="ROM file role"
+            value={as128() ? "128" : "48"}
+            onChange={(event) => setAs128(event.currentTarget.value === "128")}
+          >
+            <option value="48">48K ROM / complete ROM pair</option>
+            <option value="128">128K ROM (add 48K part if needed)</option>
+          </select>
+          <button
+            type="button"
+            class="btn"
+            onClick={() => void store.useBundled128Rom()}
+          >
+            Use bundled 128K ROM
+          </button>
           <label class="file-picker btn btn-accent">
             <span>Choose ROM file</span>
             <input
@@ -55,8 +70,9 @@ export const RomControls: Component = () => {
           </Show>
         </div>
         <p class="rom-help">
-          The file must be exactly {ROM_SIZE.toLocaleString()} bytes. A larger
-          or smaller file is rejected without replacing the active ROM.
+          Choose a 16 KiB ROM or a 32 KiB ROM pair. For a 16 KiB 128K ROM, the
+          bundled 48K ROM supplies the second page. Selecting a ROM cold boots
+          the machine.
         </p>
         <p
           class="storage-message"

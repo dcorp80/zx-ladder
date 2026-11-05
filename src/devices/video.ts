@@ -43,7 +43,7 @@ export interface RasterVideo extends Device {
   readonly advanceX: number;
   readonly completed: CapturePlanes;
   readonly hasFrame: boolean;
-  fetch(bus: DeviceBus, symbolIndex: number): void;
+  fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void;
   cpuAccess(): void;
   captureBorder(position: number, latch: number): void;
   /** Called only when sampled INT changes; frame clipping is internal. */
@@ -156,7 +156,7 @@ export class TimedVideo implements RasterVideo {
       this.preset.flashBit,
     );
   }
-  fetch(bus: DeviceBus, symbolIndex: number): void {
+  fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void {
     if (this.nextFetchIsPixel)
       this.pixelFetch = bus.readMemory(this.pixelAddresses[symbolIndex]);
     else

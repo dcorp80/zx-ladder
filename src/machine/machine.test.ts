@@ -34,7 +34,7 @@ it("maps four independent plain banks and protects ROM", () => {
   }
   m.write(0, 123);
   expect(m.read(0)).toBe(0x76);
-  expect(() => new BankedMemory(new Uint8Array(32768))).toThrow("16 KiB");
+  expect(() => new BankedMemory(new Uint8Array(32769))).toThrow("16 KiB");
 });
 
 it("decodes low-byte aliases then optional upper address and rejects read conflicts", () => {

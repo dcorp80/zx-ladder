@@ -107,3 +107,18 @@ it("rejects truncated data, unsupported formats and partial bytes", () => {
   corrupted[corrupted.length - 1] ^= 1;
   expect(parseTzx(corrupted)[0].checksumValid).toBe(false);
 });
+
+it("skips only the conditional 48K stop in 128K mode", () => {
+  const conditional = image(...data(1), 0x2a, 0, 0, 0, 0, ...data(2));
+  expect(parseTape(conditional, "both.tzx").map((b) => b.payload[0])).toEqual([
+    1,
+  ]);
+  expect(
+    parseTape(conditional, "both.tzx", true).map((b) => b.payload[0]),
+  ).toEqual([1, 2]);
+  expect(
+    parseTzx(image(...data(1), 0x20, 0, 0, ...data(2)), true).map(
+      (b) => b.payload[0],
+    ),
+  ).toEqual([1]);
+});

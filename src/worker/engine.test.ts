@@ -203,3 +203,33 @@ it("reports tick deltas while a video transfer is still in flight", () => {
     h.engine.dispose();
   }
 });
+
+it("routes live paging decode changes to the worker and keeps page contents", () => {
+  const h = harness();
+  const firmware = new Uint8Array(32768);
+  // OUT (FD),3; LD A,91; LD (C000),A; HALT
+  firmware.set([0x3e, 3, 0xd3, 0xfd, 0x3e, 91, 0x32, 0, 0xc0, 0x76]);
+  try {
+    h.send({
+      type: "init",
+      rom: firmware,
+      preset: PENTAGON_VIDEO_PRESET,
+      turbo: false,
+      lateInt: false,
+      decodeFd: false,
+    });
+    h.send({ type: "decodeFd", value: true });
+    h.send({ type: "step", pixels: 1000 });
+    expect(
+      h.send({ type: "inspect", address: 0xc000, length: 1 }).memory?.[0],
+    ).toBe(91);
+    h.send({ type: "reset", value: true });
+    h.send({ type: "reset", value: false });
+    // Reset maps page 0, proving that OUT (03FD),A selected a different page.
+    expect(
+      h.send({ type: "inspect", address: 0xc000, length: 1 }).memory?.[0],
+    ).toBe(255);
+  } finally {
+    h.engine.dispose();
+  }
+});

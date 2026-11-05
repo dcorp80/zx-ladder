@@ -51,6 +51,7 @@ export class WorkerEngine {
       pc: m.cpu.regs.pc,
       cpu7: m.cpu7,
       cpuLoad: m.cpuLoad,
+      memoryMapping: m.memoryMapping,
       tape: m.tape.status,
       keys: ALL_KEYS.filter((key) => m.keyboard.isPressed(key)),
       romCapsLock: m.keyboard.romCapsLock,
@@ -164,6 +165,7 @@ export class WorkerEngine {
     if (c.type === "init") {
       this.machine = createMachine({
         rom: c.rom,
+        decodeFd: c.decodeFd,
         videoPreset: c.preset,
         cpu7: c.turbo,
         lateInt: c.lateInt,
@@ -215,6 +217,9 @@ export class WorkerEngine {
         case "border":
           this.border = c.value;
           this.dirty = true;
+          break;
+        case "decodeFd":
+          m.setDecodeFd(c.value);
           break;
         case "turbo":
           m.setTurbo(c.value);

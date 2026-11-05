@@ -113,7 +113,7 @@ describe("ZX Ladder shell", () => {
     expect(mounted.mounted.getByRole("option", { name: "Lviv" })).toBeEnabled();
   });
 
-  it("rejects a ROM unless it is exactly 16 KiB", async () => {
+  it("rejects a ROM unless it is 16 or 32 KiB", async () => {
     const mounted = await mount();
     cleanup = () => {
       mounted.mounted.unmount();
@@ -121,7 +121,7 @@ describe("ZX Ladder shell", () => {
     };
     await mounted.store.importRom(new File([new Uint8Array(3)], "short.rom"));
     expect(mounted.store.rom()).toBeNull();
-    expect(mounted.store.error()).toMatch(/exactly 16384 bytes/);
+    expect(mounted.store.error()).toMatch(/exactly 16384 or 32768 bytes/);
   });
 
   it("imports, persists, and steps a valid ROM without the old Todo UI", async () => {

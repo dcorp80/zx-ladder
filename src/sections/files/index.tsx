@@ -143,8 +143,9 @@ export function FilesSection() {
         </For>
       </Show>
       <p class="muted">
-        Flash loading supports the standard 48K ROM loader. Custom tape loaders
-        need pulse playback, which is not available yet.
+        Flash loading supports the standard 48K loader and the bundled 128K Tape
+        Loader menu. Custom tape loaders need pulse playback, which is not
+        available yet.
       </p>
       <p class="file-status" role="status">
         {(() => {

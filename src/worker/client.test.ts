@@ -150,3 +150,32 @@ it("publishes the acknowledged stopped snapshot even when presentation snapshots
     machine.dispose();
   }
 });
+
+it("reports the selected RAM, ROM and screen after CPU paging and reset", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const rom = new Uint8Array(32768);
+  // Select RAM 3, ROM 1, screen 7, then lock paging. Both ROMs end in HALT.
+  const program = [0x3e, 0x3b, 0x01, 0xfd, 0x7f, 0xed, 0x79, 0x76];
+  rom.set(program);
+  rom.set(program, 16384);
+  const machine = new WorkerMachine({ rom });
+  try {
+    await machine.stepPixels(1000);
+    const stopped = await machine.pauseExecution();
+    expect(stopped.memoryMapping).toEqual({
+      ramPage: 3,
+      romPage: 1,
+      screenPage: 7,
+    });
+    expect(machine.memoryMapping).toEqual(stopped.memoryMapping);
+    machine.setReset(true);
+    await machine.pauseExecution();
+    expect(machine.memoryMapping).toEqual({
+      ramPage: 0,
+      romPage: 0,
+      screenPage: 5,
+    });
+  } finally {
+    machine.dispose();
+  }
+});

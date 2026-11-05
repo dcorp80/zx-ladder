@@ -3,6 +3,7 @@ import type { KeyboardDevice, SpectrumKey } from "../devices/keyboard";
 import type { BankedMemory } from "../devices/memory";
 import type { TapBlock } from "../files/tap";
 import { parseTape } from "../files/tape";
+import { MENU_128_POLL, supports128TapeMenu } from "./spectrum128Tape";
 
 export const TAPE_ROM_SIGNATURE = [
   0xf5, 0x3a, 0x48, 0x5c, 0xe6, 0x38, 0x0f, 0x0f, 0x0f, 0xd3, 0xfe, 0x3e, 0x7f,
@@ -11,6 +12,7 @@ export const TAPE_ROM_SIGNATURE = [
   0x20, 0xf6, 0x02, 0x4f, 0xbf, 0xc0, 0xcd, 0xe7, 0x05,
 ];
 const OWNER = "tape-auto-load";
+const MENU_COMMAND: readonly (readonly SpectrumKey[])[] = [["ENTER"]];
 const COMMAND: readonly (readonly SpectrumKey[])[] = [
   ["J"],
   ["SYMBOL_SHIFT", "P"],
@@ -18,10 +20,18 @@ const COMMAND: readonly (readonly SpectrumKey[])[] = [
   ["ENTER"],
 ];
 
-/** Optional ROM service. Never writes CPU registers, sequencer state, or ROM. */
+/** Shared 48K/128K ROM tape service. Never writes CPU registers, sequencer state, or ROM. */
 export class Spectrum48Tape {
-  readonly supported: boolean;
+  private readonly compatible: boolean[];
+  get supported(): boolean {
+    return this.compatible[this.memory.romIndex];
+  }
+  readonly supports128Menu: boolean;
+  get canMount(): boolean {
+    return this.supports128Menu || this.supported;
+  }
   status = "No tape mounted.";
+  private menuAutoLoad = false;
   private blocks: TapBlock[] | null = null;
   private cursor = 0;
   private program: number[] | null = null;
@@ -35,9 +45,15 @@ export class Spectrum48Tape {
     private readonly memory: BankedMemory,
     private readonly keyboard: KeyboardDevice,
   ) {
-    this.supported =
-      TAPE_ROM_SIGNATURE.every((b, i) => memory.read(0x053f + i) === b) &&
-      [0xfd, 0xcb, 0x02, 0x5e].every((b, i) => memory.read(0x10a8 + i) === b);
+    this.compatible = memory.romPages.map(
+      (rom) =>
+        TAPE_ROM_SIGNATURE.every((b, i) => rom[0x053f + i] === b) &&
+        [0xfd, 0xcb, 0x02, 0x5e].every((b, i) => rom[0x10a8 + i] === b),
+    );
+    this.supports128Menu =
+      memory.expanded &&
+      this.compatible[1] &&
+      supports128TapeMenu(memory.romPages[0]);
     keyboard.subscribe(() => {
       if (this.typing && this.phase >= 0 && keyboard.hasOtherSources(OWNER)) {
         this.cancel();
@@ -46,10 +62,11 @@ export class Spectrum48Tape {
     });
   }
   mount(bytes: Uint8Array, name: string): void {
-    if (!this.supported)
-      throw new Error("This ROM is not supported by the 48K flash loader.");
-    const blocks = parseTape(bytes, name);
+    if (!this.canMount)
+      throw new Error("This ROM is not supported by the flash tape loader.");
+    const blocks = parseTape(bytes, name, this.memory.expanded);
     this.cancel();
+    this.menuAutoLoad = this.supports128Menu && this.memory.romIndex === 0;
     this.blocks = blocks;
     this.cursor = 0;
     this.typing = true;
@@ -57,11 +74,16 @@ export class Spectrum48Tape {
     this.age = 0;
     this.phase = -1;
     this.delay = 0;
-    this.status = `${name}: waiting for BASIC…`;
+    this.status = `${name}: waiting for ${this.menuAutoLoad ? "128K Tape Loader menu" : "BASIC"}…`;
   }
   cancel(): void {
     this.typing = false;
     this.keyboard.release(OWNER);
+    this.program = null;
+    this.offset = 0;
+  }
+  /** Normal ROM paging must retain the mounted tape, cursor and menu key press. */
+  romChanged(): void {
     this.program = null;
     this.offset = 0;
   }
@@ -75,7 +97,7 @@ export class Spectrum48Tape {
     if (!this.typing) return;
     if (++this.age > 600) {
       this.cancel();
-      this.status = "BASIC readiness timed out. Load again to retry.";
+      this.status = `${this.menuAutoLoad ? "128K menu" : "BASIC"} readiness timed out. Load again to retry.`;
       return;
     }
     if (this.keyboard.hasOtherSources(OWNER)) {
@@ -89,19 +111,34 @@ export class Spectrum48Tape {
     if (this.delay-- > 0) return;
     this.keyboard.release(OWNER);
     this.phase++;
-    if (this.phase >= COMMAND.length * 2) {
+    const command = this.menuAutoLoad ? MENU_COMMAND : COMMAND;
+    if (this.phase >= command.length * 2) {
       this.typing = false;
-      this.status = "LOAD command entered; waiting for ROM tape reads…";
+      this.status = this.menuAutoLoad
+        ? "Tape Loader selected; waiting for ROM tape reads…"
+        : "LOAD command entered; waiting for ROM tape reads…";
       return;
     }
     if (this.phase % 2 === 0)
-      this.keyboard.press(OWNER, COMMAND[this.phase / 2]);
+      this.keyboard.press(OWNER, command[this.phase / 2]);
     this.delay = 3;
-    this.status = 'Typing LOAD ""…';
+    this.status = this.menuAutoLoad
+      ? "Selecting 128K Tape Loader…"
+      : 'Typing LOAD ""…';
   }
   /** Called only on a CPU memory read request; undefined means normal bus data. */
   read(address: number, opcode: boolean, cpu: Z80Cpu): number | undefined {
-    if (opcode && address === 0x10a8 && this.typing) this.ready = true;
+    if (
+      this.typing &&
+      opcode &&
+      this.menuAutoLoad &&
+      this.memory.romIndex === 0 &&
+      address === MENU_128_POLL
+    )
+      this.ready = true;
+    if (!this.supported) return undefined;
+    if (opcode && address === 0x10a8 && this.typing && !this.menuAutoLoad)
+      this.ready = true;
     if (this.program) {
       if (address === 0x056c + this.offset) {
         const value = this.program[this.offset++];

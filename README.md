@@ -10,9 +10,32 @@ version; hover over it to see the build commit.
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
 On first visit, the bundled **48K ROM** is loaded and saved in IndexedDB.
-Press **Run** to start. A previously saved 16 KiB ROM takes precedence and is
+Press **Run** to start. A previously saved ROM takes precedence and is
 restored paused; the Machine section’s file selector can replace it as before.
 If the bundled download fails, select your own ROM to continue.
+
+Use **Use bundled 128K ROM** in Machine to cold boot with 128 KiB RAM and two
+ROM pages. A 32 KiB file supplies both pages in file order. For a 16 KiB 128K
+ROM, select the 128K file role before importing; the bundled `48.rom` supplies
+page 1. Ordinary 16 KiB imports retain the 48K machine. Completed ROM pairs
+persist together, so restoring them needs no additional download.
+
+Machine also shows the current RAM page at C000–FFFF, ROM page at 0000–3FFF,
+and physical screen RAM page (5 or 7). These follow the live machine status and
+return to RAM 0 / ROM 0 / screen 5 after reset.
+
+**Decode paging port by low byte** switches between exact `7FFD` (unchecked,
+default) and any `xxFD` address (checked). The setting is saved and applies live
+without clearing RAM or unlocking paging. Bits 0–2 select top RAM, bit 3 selects
+screen RAM 5/7, bit 4 selects ROM, and bit 5 locks further paging until reset.
+These decode choices are explicit emulator modes, not the original 128K partial
+hardware decode. FD also catches FFFD/BFFD sound-port writes and disrupts the
+bundled 128K ROM boot; use exact 7FFD for that firmware. Warm reset clears paging and preserves RAM; cold boot clears RAM.
+Video fetches physical screen RAM independently of CPU mappings and CPU address
+interceptors, retaining the existing slot arbitration and captured fetch latches.
+Flash loading supports the bundled 128K Tape Loader menu and the standard 48K
+loader. AY sound and tape pulse playback remain unavailable.
+
 
 Video preset, Turbo, Free run, border visibility, and theme are saved in
 localStorage and restored with the saved ROM. Press Run or Step frame to begin. **System** is the
@@ -54,7 +77,9 @@ so inactive time does not lower the next reading.
 Memory and I/O devices register their address claims with the bus. Video
 registers a clock hook and shares memory slots with CPU MREQ transitions.
 The CPU, previous pin state, fetch latches, and counters survive frame
-boundaries. RAM uses three plain 16 KiB arrays plus one protected ROM array.
+boundaries. Memory uses plain 16 KiB physical pages and four cached CPU slot
+references. In 128K mode the map is selected ROM / RAM 5 / RAM 2 / selected RAM;
+paging swaps references without copying bytes. Writes to CPU slot zero are gated.
 Memory pages fully covered by one owner and without interceptors dispatch directly
 to that owner. Conditional memory interceptors run in priority order, checking
 exact address ranges before handling an access or passing it through to backing
@@ -79,7 +104,7 @@ read returns `0x1F`; unclaimed odd ports still return `0xFF`. The bus supports d
 inhibition for shared ports. State-changing I/O commit notifications and a
 general device/UI adapter registry remain future work.
 
-This version supports the FE bit-4 beeper. Tape pulse playback, AY audio, contention, and 128K paging are not implemented. Beeper volume defaults to 20%; saved preferences are preserved.
+This version supports the FE bit-4 beeper. Tape pulse playback, AY audio, and contention are not implemented. Beeper volume defaults to 20%; saved preferences are preserved.
 The initial video wiring uses two V-sync lines for Pentagon and four for
 Lviv, and ignores V8 in screen RAM
 addressing; off-screen wiring and border-effect alignment remain to be
@@ -97,7 +122,9 @@ the chord; the observed host target survives reset. The browser cannot supply
 the initial lock state until an input event reports it.
 
 The adapter recognizes the 48K ROM Caps Lock handler byte sequence and is
-inactive for unsupported ROMs. 128K needs a separate compatibility review.
+inactive for unsupported ROMs. Compatibility is cached per physical ROM page;
+paging to another ROM cancels pending Caps Lock activity. Tape sessions survive
+normal ROM paging, with injected instructions confined to their active ROM.
 The ivory Caps Lock keycap changes the target locally until the next host
 Caps Lock state change. Uppercase host letters do not directly add Caps Shift.
 
@@ -118,9 +145,16 @@ only TAP/TZX members, grouped by archive name with full member paths. Replacemen
 require confirmation. Archive reimports merge members; deleting a stored file
 does not alter the copy already mounted in the machine.
 
-Load performs a warm reset, preserves RAM, resumes execution, waits for the
-standard 48K ROM keyboard-input routine, and types `LOAD ""` plus Enter through
-the keyboard matrix. Loading is accelerated by intercepting the standard ROM
+Load validates the tape before changing the machine. With the bundled 128K ROM,
+it resets to the main menu, waits for its verified keyboard polling loop, and
+presses Enter through the keyboard matrix to select Tape Loader. With a standalone
+48K ROM, it resets, waits for BASIC, and types `LOAD ""` plus Enter. Reset itself
+preserves RAM, but the 128K firmware's boot routine clears RAM. Exact 7FFD decoding
+is required for this 128K menu workflow; incompatible FD decoding is rejected
+before reset. Ordinary ROM paging retains the tape cursor, and flash copies use
+the currently selected RAM pages, including banked loads above C000.
+
+Loading is accelerated by intercepting the standard ROM
 routine: data goes directly to writable RAM, then the CPU executes temporary
 instructions and returns through the real stack, to either ROM cleanup or a
 custom RAM loader. No CPU state is restored
@@ -142,8 +176,11 @@ TZX flash loading accepts standard, turbo, and pure-data blocks containing whole
 Spectrum flag/payload/checksum bytes. Metadata, tones, pulse sequences, and
 positive pauses do not consume data blocks. Signed jumps, finite loops and call
 sequences determine load order; execution and output limits prevent malformed
-control flow from hanging the browser. Stop markers (including stop-in-48K)
-end the current flash sequence; resuming beyond a stop is not implemented.
+control flow from hanging the browser. Unconditional stop markers end the current
+flash sequence; resuming beyond a stop is not implemented. Stop-in-48K markers
+end the sequence only on a 48K machine and are skipped on a 128K machine. Library
+validation follows the 128K path so that 128K-only tapes can be imported; loading
+applies the actual machine mode.
 Direct/CSW/generalized recordings, partial-byte data, selection menus, embedded
 snapshots and unknown block types are rejected before reset. Accepting turbo
 block data does not emulate a custom loader's pulses: the program must still
@@ -201,7 +238,7 @@ organization policy may require enabling Pages/Actions or approving that
 protected environment in GitHub settings.
 
 Vite builds assets under `/zx-ladder/`, matching the expected project URL
-`https://dcorp80.github.io/zx-ladder/`. The site includes the AudioWorklet, the separately licensed 48K ROM, and its
+`https://dcorp80.github.io/zx-ladder/`. The site includes the AudioWorklet, the separately licensed 48K and 128K ROMs, and their
 notice. Tape images are not bundled. A different repository path
 or custom domain requires updating Vite's production `base`. Browser-stored
 files and preferences are local to the site's origin, so localhost data does

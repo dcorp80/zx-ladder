@@ -1,4 +1,5 @@
 import { KeyboardDevice, type SpectrumKey } from "../devices/keyboard";
+import type { MemoryMapping } from "../devices/memory";
 import {
   PENTAGON_VIDEO_PRESET,
   type VideoPreset,
@@ -123,6 +124,7 @@ export class WorkerMachine implements MachineLike {
   framePosition = 0;
   cpu7: boolean;
   cpuLoad: number | null = null;
+  memoryMapping: MemoryMapping = { ramPage: 0, romPage: 0, screenPage: 5 };
   hasFrame = false;
   presentationVersion = 0;
   videoPreset: VideoPreset;
@@ -136,7 +138,10 @@ export class WorkerMachine implements MachineLike {
     return this.videoPreset.height;
   }
   constructor(
-    options: Pick<MachineOptions, "rom" | "cpu7" | "lateInt" | "videoPreset">,
+    options: Pick<
+      MachineOptions,
+      "rom" | "cpu7" | "lateInt" | "videoPreset" | "decodeFd"
+    >,
   ) {
     this.videoPreset = options.videoPreset ?? PENTAGON_VIDEO_PRESET;
     this.cpu7 = options.cpu7 ?? false;
@@ -155,6 +160,7 @@ export class WorkerMachine implements MachineLike {
     this.fire({
       type: "init",
       rom: options.rom,
+      decodeFd: options.decodeFd,
       preset: this.videoPreset,
       turbo: this.cpu7,
       lateInt: options.lateInt ?? false,
@@ -197,6 +203,7 @@ export class WorkerMachine implements MachineLike {
     this.cpu.regs.pc = state.pc;
     this.cpu7 = state.cpu7;
     this.cpuLoad = state.cpuLoad;
+    this.memoryMapping = state.memoryMapping;
     this.tape.status = state.tape;
     this.keyboard.update(state);
     this.options?.onFps?.(state.fps);
@@ -308,6 +315,9 @@ export class WorkerMachine implements MachineLike {
   }
   setLateInt(value: boolean): void {
     this.fire({ type: "lateInt", value });
+  }
+  setDecodeFd(value: boolean): void {
+    this.fire({ type: "decodeFd", value });
   }
   setTurbo(value: boolean): void {
     this.fire({ type: "turbo", value });

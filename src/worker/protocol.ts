@@ -1,4 +1,5 @@
 import type { SpectrumKey } from "../devices/keyboard";
+import type { MemoryMapping } from "../devices/memory";
 import type { VideoPreset } from "../devices/videoPresets";
 
 export type KeyboardCommand =
@@ -13,6 +14,7 @@ export type Command =
   | {
       type: "init";
       rom: Uint8Array;
+      decodeFd?: boolean;
       preset: VideoPreset;
       turbo: boolean;
       lateInt: boolean;
@@ -24,6 +26,7 @@ export type Command =
       type:
         | "border"
         | "turbo"
+        | "decodeFd"
         | "reset"
         | "lateInt"
         | "freeRun"
@@ -51,6 +54,7 @@ export interface MachineState {
   pc: number;
   cpu7: boolean;
   cpuLoad: number | null;
+  memoryMapping: MemoryMapping;
   tape: string;
   keys: SpectrumKey[];
   romCapsLock: boolean | undefined;

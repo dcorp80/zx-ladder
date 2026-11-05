@@ -164,3 +164,13 @@ it("imports TZX directly and from ZIP alongside TAP", async () => {
   expect(invalid.files).toHaveLength(0);
   expect(invalid.messages[0]).toContain("TZX");
 });
+
+it("imports a 128K TZX whose data follows a 48K-only stop", async () => {
+  const bytes = new Uint8Array([
+    90, 88, 84, 97, 112, 101, 33, 26, 1, 20, 0x2a, 0, 0, 0, 0, 0x10, 0xe8, 3, 3,
+    0, 255, 42, 213,
+  ]);
+  const batch = await prepareImport([file("128-only.tzx", bytes)]);
+  expect(batch.files).toHaveLength(1);
+  expect(batch.files[0].bytes).toEqual(bytes);
+});

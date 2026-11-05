@@ -6,7 +6,10 @@ import type { BankedMemory } from "../devices/memory";
  * KEY_INPUT handles CS+2 at 0x10DD. Never write the ROM's flag directly.
  */
 export class Spectrum48CapsLock {
-  readonly supported: boolean;
+  private readonly compatible: boolean[];
+  get supported(): boolean {
+    return this.compatible[this.memory.romIndex];
+  }
   private polled = false;
   private pulseFrames = 0;
   private cooldown = 0;
@@ -14,8 +17,10 @@ export class Spectrum48CapsLock {
     private readonly memory: BankedMemory,
     private readonly keyboard: KeyboardDevice,
   ) {
-    this.supported = [0x21, 0x6a, 0x5c, 0x3e, 0x08, 0xae, 0x77].every(
-      (value, offset) => memory.read(0x10dd + offset) === value,
+    this.compatible = memory.romPages.map((rom) =>
+      [0x21, 0x6a, 0x5c, 0x3e, 0x08, 0xae, 0x77].every(
+        (value, offset) => rom[0x10dd + offset] === value,
+      ),
     );
   }
   keyboardPoll(): void {

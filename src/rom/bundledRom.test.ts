@@ -89,3 +89,15 @@ it("ships the unmodified reference ROM", () => {
     "d55daa439b673b0e3f5897f99ac37ecb45f974d1862b4dadb85dec34af99cb42",
   );
 });
+it("persists and restores the complete 128K ROM pair", async () => {
+  const backend = new MemoryBackend({ persistent: true });
+  const first = await createAppStore({ ...deps, backend });
+  const bytes = new Uint8Array(readFileSync("public/roms/128.rom"));
+  await first.importRom(new File([bytes], "128.rom"));
+  expect(first.rom()?.bytes).toEqual(bytes);
+  first.dispose();
+  const restored = await createAppStore({ ...deps, backend });
+  expect(restored.rom()?.bytes).toEqual(bytes);
+  expect(restored.isRunning()).toBe(false);
+  restored.dispose();
+});

@@ -1,4 +1,5 @@
 ZX Spectrum 48K firmware: 48.rom (16,384 bytes)
+ZX Spectrum 128K firmware: 128.rom (32,768 bytes)
 
 Original firmware copyright: Sinclair Research Ltd.
 Amstrad's permission statement covers the Sinclair Spectrum firmware it acquired.
@@ -17,5 +18,10 @@ http://groups.google.com/group/comp.sys.amstrad.8bit/msg/c092cc4d4943131e
 
 Provenance: copied byte-for-byte from Bedazzle/ZX-M8XXX, roms/48.rom:
 https://github.com/Bedazzle/ZX-M8XXX/blob/main/roms/48.rom
-Only this 48K firmware is bundled. No permission for unrelated ROMs or games
+128K provenance: copied byte-for-byte from the local ZX-M8XXX checkout,
+roms/128.rom, alongside the existing 48K image:
+https://github.com/Bedazzle/ZX-M8XXX/blob/main/roms/128.rom
+SHA-256: c1ff621d7910105d4ee45c31e9fd8fd0d79a545c78b66c69a562ee1ffbae8d72
+
+These two firmware images are bundled. No permission for unrelated ROMs or games
 is implied by this notice.

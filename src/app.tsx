@@ -98,7 +98,8 @@ export const App: Component = () => {
       </div>
       <footer class="app-footer">
         <span>
-          48K RAM · no contention · {store.videoPreset().label} video ·{" "}
+          {store.rom()?.bytes.length === 32768 ? "128K" : "48K"} RAM · no
+          contention · {store.videoPreset().label} video ·{" "}
           {rasterTiming(store.videoPreset()).frameHz.toFixed(3)} Hz derived
           raster
         </span>

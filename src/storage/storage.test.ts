@@ -14,10 +14,14 @@ describe("ROM storage", () => {
     expect(saved?.name).toBe("test.rom");
   });
 
-  it("requires an exact 16 KiB image", () => {
+  it("requires a 16 KiB image or 32 KiB pair", () => {
     expect(() => validateRomBytes(new Uint8Array(ROM_SIZE - 1))).toThrow(
-      /exactly 16384 bytes/,
+      /exactly 16384 or 32768 bytes/,
     );
     expect(validateRomBytes(new Uint8Array(ROM_SIZE))).toHaveLength(ROM_SIZE);
+    expect(validateRomBytes(new Uint8Array(ROM_SIZE * 2))).toHaveLength(
+      ROM_SIZE * 2,
+    );
+    expect(() => validateRomBytes(new Uint8Array(ROM_SIZE * 2 + 1))).toThrow();
   });
 });

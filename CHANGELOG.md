@@ -2,6 +2,16 @@
 
 ## 0.2.2 — 2026-11-04
 
+- Support flash loading from the bundled 128K Tape Loader menu through real
+  keyboard input and CPU returns. Preserve mounted tape position across ROM
+  paging and load into the selected RAM bank. Honor TZX 48K-only stops by model.
+
+- Add 128K memory paging with cached page references, protected ROM slots,
+  independent screen RAM selection, paging lock, and reset with RAM retention.
+- Add a saved Machine checkbox selecting exact 7FFD or low-byte FD decoding.
+- Bundle the 128K ROM; accept complete 32 KiB ROM pairs or pair a selected
+  16 KiB 128K ROM with the bundled 48K firmware. Keep 48K imports supported.
+
 - Compile direct memory dispatch for fully covered pages without interceptors.
   Support conditional, prioritized memory interceptors with pass-through reads
   and writes, retaining backing-memory ROM protection and partial-page decoding.

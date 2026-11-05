@@ -4,7 +4,7 @@ export const ROM_SIZE = 0x4000;
 export interface RomRecord {
   /** The browser file name, or a user-facing name supplied by a caller. */
   name: string;
-  /** A private copy of exactly one 16 KiB ROM image. */
+  /** A private copy of a 16 KiB ROM or complete 32 KiB ROM pair. */
   bytes: Uint8Array;
   updatedAt?: number;
 }
@@ -35,9 +35,9 @@ export function cloneRomRecord(record: RomRecord): RomRecord {
 
 export function validateRomBytes(bytes: ArrayBuffer | Uint8Array): Uint8Array {
   const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  if (view.byteLength !== ROM_SIZE) {
+  if (view.byteLength !== ROM_SIZE && view.byteLength !== ROM_SIZE * 2) {
     throw new Error(
-      `ROM must be exactly ${ROM_SIZE} bytes (received ${view.byteLength}).`,
+      `ROM must be exactly ${ROM_SIZE} or ${ROM_SIZE * 2} bytes (received ${view.byteLength}).`,
     );
   }
   return new Uint8Array(view);

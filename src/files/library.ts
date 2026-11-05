@@ -46,7 +46,8 @@ export async function prepareImport(
           total += member.bytes.length;
           if (total > 64 * 1024 * 1024)
             throw new Error("Batch exceeds 64 MiB extracted limit.");
-          const blocks = parseTape(member.bytes, member.name);
+          // Validate the complete 128K path; actual playback applies the machine mode.
+          const blocks = parseTape(member.bytes, member.name, true);
           const group = /\.zip$/i.test(file.name) ? file.name : null;
           const id = fileId(group, member.name);
           if (ids.has(id))

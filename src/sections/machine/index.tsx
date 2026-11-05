@@ -14,7 +14,7 @@ export const MachineSection: Component = () => {
   return (
     <SectionFrame
       title="Machine"
-      subtitle="48K · no contention"
+      subtitle={`${store.rom()?.bytes.length === 32768 ? "128K" : "48K"} · no contention`}
       defaultFolded={false}
       actions={
         <span
@@ -74,6 +74,19 @@ export const MachineSection: Component = () => {
             <span>Turbo CPU (7 MHz; video clock remains fixed)</span>
           </label>
         </div>
+        <label class="setting-row setting-check">
+          <input
+            type="checkbox"
+            checked={store.decodeFd()}
+            title="FD also matches FFFD/BFFD sound ports; use exact 7FFD for the bundled 128K ROM."
+            onChange={(event) => store.setDecodeFd(event.currentTarget.checked)}
+          />
+          <span>Decode paging port by low byte (FD instead of exact 7FFD)</span>
+        </label>
+        <p class="muted">
+          FD also matches FFFD/BFFD sound ports. Use exact 7FFD for the bundled
+          128K ROM.
+        </p>
         <dl class="machine-status machine-meters" aria-live="polite">
           <div>
             <dt>Frames</dt>
@@ -100,6 +113,24 @@ export const MachineSection: Component = () => {
           <div>
             <dt>Position</dt>
             <dd>{store.status().framePosition.toLocaleString()}</dd>
+          </div>
+        </dl>
+        <dl
+          class="machine-status machine-meters"
+          aria-label="Memory mapping"
+          aria-live="polite"
+        >
+          <div title="RAM page mapped at C000–FFFF">
+            <dt>RAM page</dt>
+            <dd>{store.status().memoryMapping?.ramPage ?? "—"}</dd>
+          </div>
+          <div title="ROM page mapped at 0000–3FFF">
+            <dt>ROM</dt>
+            <dd>{store.status().memoryMapping?.romPage ?? "—"}</dd>
+          </div>
+          <div title="Physical RAM page used for the display">
+            <dt>Screen page</dt>
+            <dd>{store.status().memoryMapping?.screenPage ?? "—"}</dd>
           </div>
         </dl>
         <RomControls />

@@ -1,6 +1,7 @@
 import { Z80Cpu } from "@dcorp80/z80cpu";
 import { BorderDevice } from "../devices/border";
 import { KeyboardDevice } from "../devices/keyboard";
+import { Mcu } from "../devices/mcu";
 import { BankedMemory } from "../devices/memory";
 import { PortFeInputDevice } from "../devices/portFeInput";
 import { type RasterVideo, TimedVideo } from "../devices/video";
@@ -24,6 +25,7 @@ import { type ClockContext, type Device, DeviceBus } from "./devices";
 export interface MachineOptions {
   rom: Uint8Array;
   cpu7?: boolean;
+  decodeFd?: boolean;
   lateInt?: boolean;
   videoPreset?: VideoPreset;
   devices?: readonly Device[];
@@ -31,7 +33,12 @@ export interface MachineOptions {
 }
 
 export class Machine implements ClockContext {
-  readonly config = MACHINE_CONFIG;
+  readonly config: {
+    readonly id: string;
+    readonly label: string;
+    readonly slotHz: number;
+    readonly borderPort: { readonly mask: number; readonly value: number };
+  };
   videoPreset: VideoPreset;
   timing: RasterTiming;
   get width(): number {
@@ -42,6 +49,8 @@ export class Machine implements ClockContext {
   }
   readonly cpu = new Z80Cpu();
   readonly memory: BankedMemory;
+  readonly mcu: Mcu;
+  private readonly screenMemory: Pick<DeviceBus, "readMemory">;
   readonly border: BorderDevice;
   readonly keyboard = new KeyboardDevice();
   readonly portFeInput = new PortFeInputDevice();
@@ -97,8 +106,20 @@ export class Machine implements ClockContext {
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
     this.memory = new BankedMemory(options.rom);
+    this.config = this.memory.expanded
+      ? {
+          ...MACHINE_CONFIG,
+          id: "uncontended-128k",
+          label: "128K · no contention",
+        }
+      : MACHINE_CONFIG;
+    this.screenMemory = { readMemory: this.memory.readScreen };
     this.tape = new Spectrum48Tape(this.memory, this.keyboard);
     this.capsLock = new Spectrum48CapsLock(this.memory, this.keyboard);
+    this.mcu = new Mcu(this.memory, options.decodeFd, () => {
+      this.tape.romChanged();
+      this.capsLock.reset();
+    });
     this.border = new BorderDevice(
       this.config.borderPort.mask,
       this.config.borderPort.value,
@@ -107,6 +128,7 @@ export class Machine implements ClockContext {
     this.updateInterruptPosition();
     this.bus = new DeviceBus([
       this.memory,
+      ...(this.memory.expanded ? [this.mcu] : []),
       this.border,
       this.keyboard,
       this.portFeInput,
@@ -133,6 +155,7 @@ export class Machine implements ClockContext {
     const video = this.videoFactory(preset);
     const bus = new DeviceBus([
       this.memory,
+      ...(this.memory.expanded ? [this.mcu] : []),
       this.border,
       this.keyboard,
       this.portFeInput,
@@ -198,6 +221,12 @@ export class Machine implements ClockContext {
       this.video.advanceX,
     );
   }
+  get memoryMapping() {
+    return this.memory.mapping;
+  }
+  setDecodeFd(enabled: boolean): void {
+    this.mcu.decodeFd = enabled;
+  }
   setTurbo(enabled: boolean): void {
     this.requestedTurbo = enabled;
   }
@@ -223,6 +252,7 @@ export class Machine implements ClockContext {
   setReset(pressed: boolean): void {
     if (pressed && !this.resetHeld) {
       this.resetHalfCycles = 6;
+      this.mcu.reset();
       this.capsLock.reset();
       this.tape.reset();
     }
@@ -231,12 +261,18 @@ export class Machine implements ClockContext {
   }
 
   loadTape(bytes: Uint8Array, name: string): void {
-    if (!this.tape.supported)
-      throw new Error("This ROM is not supported by the 48K flash loader.");
+    if (!this.tape.canMount)
+      throw new Error("This ROM is not supported by the flash tape loader.");
+    if (this.tape.supports128Menu && this.mcu.decodeFd)
+      throw new Error(
+        "Select exact 7FFD paging (uncheck low-byte FD) before loading with the 128K ROM.",
+      );
     // Validate before touching the running machine.
-    parseTape(bytes, name);
-    this.setReset(true);
-    this.setReset(false);
+    parseTape(bytes, name, this.memory.expanded);
+    if (!this.memory.expanded || this.tape.supports128Menu) {
+      this.setReset(true);
+      this.setReset(false);
+    }
     this.tape.mount(bytes, name);
   }
 
@@ -262,6 +298,7 @@ export class Machine implements ClockContext {
     // hooks still observe live counters, frame position and CPU pin values.
     const video = this.video;
     const bus = this.bus;
+    const videoMemory = this.memory.expanded ? this.screenMemory : bus;
     const counters = this.counters;
     const clocks = this.clocks;
     const { width, pixelsPerFrame } = this.videoPreset;
@@ -303,7 +340,7 @@ export class Machine implements ClockContext {
             this.readActive = false;
           }
           video.cpuAccess();
-        } else video.fetch(bus, symbolIndex);
+        } else video.fetch(videoMemory, symbolIndex);
 
         // Observe before the CPU edges: their request is serviced next slot.
         this.previousMreq = b.nMREQ;

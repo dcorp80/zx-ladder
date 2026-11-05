@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 import { BeeperOutput } from "../audio/output";
 import type { KeyboardDevice } from "../devices/keyboard";
+import type { MemoryMapping } from "../devices/memory";
 import {
   PENTAGON_VIDEO_PRESET,
   VIDEO_PRESETS,
@@ -23,6 +24,7 @@ import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 import type { RasterTiming } from "../machine/config";
 import { createMachine } from "../machine/machine";
 import { loadBundledRom } from "../rom/bundledRom";
+import { complete128Rom } from "../rom/romPair";
 import { createHostLoop } from "../runloop/hostLoop";
 import {
   openDefaultBackend,
@@ -66,8 +68,10 @@ export interface MachineLike {
   readonly framePosition: number;
   readonly cpu7: boolean;
   readonly cpuLoad: number | null;
+  readonly memoryMapping?: MemoryMapping;
   readonly hasFrame: boolean;
   setLateInt(enabled: boolean): void;
+  setDecodeFd?(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setReset(pressed: boolean): void;
   setVideoPreset(preset: VideoPreset): void;
@@ -88,6 +92,7 @@ export interface RuntimeStatus {
   pc: number;
   ticks: number;
   cpuLoad: number | null;
+  memoryMapping: MemoryMapping | null;
   framePosition: number;
   hasFrame: boolean;
   width: number;
@@ -106,6 +111,7 @@ export interface CreateStoreDeps {
   machineFactory?: (options: {
     rom: Uint8Array;
     cpu7?: boolean;
+    decodeFd?: boolean;
     lateInt?: boolean;
     videoPreset?: VideoPreset;
   }) => MachineLike;
@@ -150,6 +156,7 @@ export interface Store {
   readonly fps: Accessor<number | null>;
   readonly videoPreset: Accessor<VideoPreset>;
   readonly turbo: Accessor<boolean>;
+  readonly decodeFd: Accessor<boolean>;
   readonly freeRun: Accessor<boolean>;
   readonly showBorder: Accessor<boolean>;
   readonly lateInt: Accessor<boolean>;
@@ -163,12 +170,14 @@ export interface Store {
   coldBoot(): void;
   setVideoPreset(id: string): void;
   setLateInt(enabled: boolean): void;
+  setDecodeFd(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setFreeRun(enabled: boolean): void;
   setReset(pressed: boolean): void;
   setShowBorder(enabled: boolean): void;
   setTheme(theme: Theme): void;
-  importRom(file: File): Promise<void>;
+  importRom(file: File, as128?: boolean): Promise<void>;
+  useBundled128Rom(): Promise<void>;
   refresh(): void;
   clearError(): void;
   dispose(): void;
@@ -250,6 +259,7 @@ export async function createAppStore(
       pc: 0,
       ticks: 0,
       cpuLoad: null,
+      memoryMapping: null,
       framePosition: 0,
       hasFrame: false,
       width: initialVideoPreset.width,
@@ -266,6 +276,7 @@ export async function createAppStore(
     const [fps, setFps] = createSignal<number | null>(null);
     const [videoPreset, setVideoPresetSignal] =
       createSignal<VideoPreset>(initialVideoPreset);
+    const [decodeFd, setDecodeFdSignal] = createSignal(config.decodeFd);
     const [turbo, setTurboSignal] = createSignal(config.turbo);
     const [freeRun, setFreeRunSignal] = createSignal(config.freeRun);
     const [lateInt, setLateIntSignal] = createSignal(config.lateInt);
@@ -305,6 +316,7 @@ export async function createAppStore(
           volume: volume(),
           videoPreset: videoPreset().id,
           turbo: turbo(),
+          decodeFd: decodeFd(),
           freeRun: freeRun(),
           showBorder: showBorder(),
           lateInt: lateInt(),
@@ -357,6 +369,7 @@ export async function createAppStore(
           pc: 0,
           ticks: 0,
           cpuLoad: null,
+          memoryMapping: null,
           framePosition: 0,
           hasFrame: false,
           width: videoPreset().width,
@@ -385,6 +398,7 @@ export async function createAppStore(
           pc: Math.max(0, Math.floor(active.cpu.regs?.pc ?? 0)) & 0xffff,
           ticks: elapsedTicks,
           cpuLoad: active.cpuLoad,
+          memoryMapping: active.memoryMapping ?? null,
           framePosition: Math.max(0, Math.floor(active.framePosition)),
           hasFrame: active.hasFrame,
           width: active.width,
@@ -411,6 +425,7 @@ export async function createAppStore(
         next = makeMachine({
           rom: new Uint8Array(bytes),
           cpu7: turbo(),
+          decodeFd: decodeFd(),
           lateInt: lateInt(),
           videoPreset: videoPreset(),
         });
@@ -559,7 +574,7 @@ export async function createAppStore(
           const active = machine();
           if (!active?.loadTape)
             throw new Error(
-              "Choose a supported 48K ROM before loading a tape.",
+              "Choose a supported 48K or 128K ROM before loading a tape.",
             );
           const file = await backend.getFile(id);
           if (!file)
@@ -587,6 +602,12 @@ export async function createAppStore(
       fps,
       videoPreset,
       turbo,
+      decodeFd,
+      setDecodeFd(enabled: boolean) {
+        machine()?.setDecodeFd?.(enabled);
+        setDecodeFdSignal(enabled);
+        persistConfig();
+      },
       freeRun,
       showBorder,
       lateInt,
@@ -607,7 +628,7 @@ export async function createAppStore(
       run() {
         const active = machine();
         if (!active || !loop) {
-          setError("Choose a valid 16 KiB ROM before starting the machine.");
+          setError("Choose a valid ROM before starting the machine.");
           return;
         }
         try {
@@ -630,7 +651,7 @@ export async function createAppStore(
       stepFrame() {
         const active = machine();
         if (!active) {
-          setError("Choose a valid 16 KiB ROM before stepping.");
+          setError("Choose a valid ROM before stepping.");
           return;
         }
         store.pause();
@@ -646,6 +667,7 @@ export async function createAppStore(
       setReset(pressed: boolean) {
         if (pressed) audio.reset();
         machine()?.setReset(pressed);
+        refresh();
       },
       coldBoot() {
         const selected = rom();
@@ -721,13 +743,37 @@ export async function createAppStore(
         applyTheme(clean);
         persistConfig();
       },
-      async importRom(file: File) {
+      async useBundled128Rom() {
+        try {
+          const record = await loadBundledRom("128.rom");
+          record.bytes = await complete128Rom(
+            record.bytes,
+            async () => (await loadBundledRom()).bytes,
+          );
+          if (!activateRom(record)) return;
+          store.focusScreen();
+          await persistRom(record);
+        } catch (cause) {
+          setError(
+            messageForError(cause, "The bundled 128K ROM could not be loaded."),
+          );
+        }
+      },
+      async importRom(file: File, as128 = false) {
         let bytes: Uint8Array;
         try {
           bytes = validateRomBytes(await file.arrayBuffer());
+          if (as128)
+            bytes = await complete128Rom(
+              bytes,
+              async () => (await loadBundledRom()).bytes,
+            );
         } catch (cause) {
           setError(
-            messageForError(cause, `ROM must be exactly ${ROM_SIZE} bytes.`),
+            messageForError(
+              cause,
+              `ROM must be exactly ${ROM_SIZE} or ${ROM_SIZE * 2} bytes.`,
+            ),
           );
           return;
         }

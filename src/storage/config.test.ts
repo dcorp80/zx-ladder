@@ -13,6 +13,7 @@ it("restores configuration and the saved ROM paused", async () => {
   expect(first.theme()).toBe("system");
   first.setVideoPreset("lviv");
   first.setTurbo(true);
+  first.setDecodeFd(true);
   first.setFreeRun(true);
   first.setShowBorder(false);
   first.setTheme("dark");
@@ -24,6 +25,8 @@ it("restores configuration and the saved ROM paused", async () => {
     expect(fresh.videoPreset().id).toBe("lviv");
     expect(fresh.machine()?.height).toBe(312);
     expect(fresh.machine()?.cpu7).toBe(true);
+    expect(fresh.decodeFd()).toBe(true);
+    expect(loadConfig().decodeFd).toBe(true);
     expect(fresh.freeRun()).toBe(true);
     expect(fresh.showBorder()).toBe(false);
     expect(fresh.theme()).toBe("dark");
