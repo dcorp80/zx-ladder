@@ -50,7 +50,10 @@ export class AyDevice implements Device {
   }
   readonly io: readonly IoClaim[];
 
-  constructor(private readonly now: () => number) {
+  constructor(
+    private readonly now: () => number,
+    private readonly processor?: AyBatchSink,
+  ) {
     this.capture.origin = now();
     this.io = [
       {
@@ -127,6 +130,7 @@ export class AyDevice implements Device {
     b.endsInReset = this.resetActive;
     if (this.resetActive)
       b.resetIntervals[b.resetIntervals.length - 1][1] = duration;
+    this.processor?.(b);
     this.sink?.(b);
     b.origin = end;
     b.duration = 0;

@@ -1,4 +1,5 @@
 import { Z80Cpu } from "@dcorp80/z80cpu";
+import { AySynth } from "../audio/aySynth";
 import { AY_MAX_BATCH_TICKS, AyDevice } from "../devices/ay";
 import { BorderDevice } from "../devices/border";
 import { KeyboardDevice } from "../devices/keyboard";
@@ -52,6 +53,7 @@ export class Machine implements ClockContext {
   readonly memory: BankedMemory;
   readonly mcu: Mcu;
   readonly ay?: AyDevice;
+  readonly aySynth?: AySynth;
   /** Monotonic 7 MHz time; independent of raster rephasing and reporting deltas. */
   private elapsedTicks = 0;
   private nextAyFlush = AY_MAX_BATCH_TICKS;
@@ -111,7 +113,14 @@ export class Machine implements ClockContext {
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
     this.memory = new BankedMemory(options.rom);
-    if (this.memory.expanded) this.ay = new AyDevice(() => this.elapsedTicks);
+    if (this.memory.expanded) {
+      const synth = new AySynth();
+      this.aySynth = synth;
+      this.ay = new AyDevice(
+        () => this.elapsedTicks,
+        (batch) => synth.process(batch),
+      );
+    }
     this.config = this.memory.expanded
       ? {
           ...MACHINE_CONFIG,
