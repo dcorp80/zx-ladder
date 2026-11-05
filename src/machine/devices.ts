@@ -25,6 +25,7 @@ export interface IoClaim {
   blockLower?: boolean;
   /** Pure pin sample; can be called repeatedly during an I/O cycle. */
   read?(address: number): number;
+  /** CPU writes commit once on the qualified nWR falling edge. */
   write?(address: number, value: number): void;
 }
 export interface ClockContext {

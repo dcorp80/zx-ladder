@@ -231,7 +231,7 @@ export class Machine implements ClockContext {
     this.requestedTurbo = enabled;
   }
 
-  /** Continuous read/IO pin resolution, without taking an extra memory slot. */
+  /** Continuous read pin resolution, without taking an extra memory slot. */
   private resolveInputs(): void {
     const b = this.cpu.bus;
     if (this.readActive && b.nMREQ === 0 && b.nRD === 0)
@@ -243,8 +243,6 @@ export class Machine implements ClockContext {
         b.nINT = 1;
       } else if (b.addr !== undefined) {
         if (b.nRD === 0) b.data = this.bus.readIo(b.addr);
-        if (b.nWR === 0 && b.data !== undefined)
-          this.bus.writeIo(b.addr, b.data);
       }
     }
   }
@@ -278,8 +276,23 @@ export class Machine implements ClockContext {
 
   private cpuEdge(): void {
     this.resolveInputs();
-    const previousM1 = this.cpu.bus.nM1;
+    const b = this.cpu.bus;
+    const previousM1 = b.nM1;
+    const previousWr = b.nWR;
     this.cpu.clockEdge();
+    // Commit once at assertion, not on every sample of a held I/O strobe.
+    // Keep this before reset release and in the slot that produced the edge.
+    if (
+      previousWr === 1 &&
+      b.nWR === 0 &&
+      b.nIORQ === 0 &&
+      b.nM1 === 1 &&
+      b.nRESET === 1 &&
+      b.nBUSACK === 1 &&
+      b.addr !== undefined &&
+      b.data !== undefined
+    )
+      this.bus.writeIo(b.addr, b.data);
     // Latch the requested divider on M1 deassertion. The current pixel slot
     // finishes its scheduled edges; the next slot uses the new divider.
     if (previousM1 === 0 && this.cpu.bus.nM1 === 1)
