@@ -5,7 +5,7 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.2.3** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.3.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
@@ -233,7 +233,7 @@ The workflow in `.github/workflows/pages.yml` uses Node 24 and `npm ci`, then
 runs lint, typecheck, tests, and the production build for pull requests and
 pushes to `main`. Deployment follows Explorer's release-tag/manual pattern:
 
-- Push a `ladder-v*` release tag (for example `ladder-v0.2.2`, after updating
+- Push a `ladder-v*` release tag (for example `ladder-v0.3.0`, after updating
   `package.json` and its lockfile) to publish that revision.
 - Alternatively, run **CI and deploy Ladder to GitHub Pages** manually from
   GitHub Actions and select the revision to publish.

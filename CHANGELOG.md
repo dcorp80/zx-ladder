@@ -1,34 +1,43 @@
 # Changelog
 
-## 0.2.3 — 2026-11-05
+## 0.3.0 — 2026-11-05
 
-- Use loose 128K/Pentagon paging and AY port decoding, supporting demo aliases
-  used by Rage and EyeAche. Retain the explicit low-byte FD paging override.
+### Added
+
+- Expand the 48K machine with 128K RAM paging, two ROM pages, independent screen
+  RAM selection, paging lock, and reset with RAM retention. Keep 48K mode available.
+- Bundle the 128K ROM. Accept complete 32 KiB ROM pairs or pair a selected
+  16 KiB 128K ROM with the bundled 48K firmware; persist both pages together.
+- Show the selected RAM page, ROM page, and screen page in Machine.
+- Support flash loading from the bundled 128K Tape Loader menu through keyboard
+  input and CPU-executed returns. Preserve the tape cursor across ROM paging,
+  load into the selected RAM bank, and honor TZX 48K-only stops by machine mode.
+- Add AY-3-8912 sound on 128K machines: register readback, tone, noise, envelopes,
+  and timestamped write/reset capture, running at a fixed 1.75 MHz independently
+  of CPU turbo.
+- Add AY enable, volume, ABC/ACB/Mono stereo routing, and middle-channel mix
+  controls. Mix AY and beeper in the worker and deliver pooled stereo PCM through
+  AudioWorklet; retain chip state when playback is muted.
+
+### Changed
+
+- Decode paging with A15=0 and A1=0 by default, and accept AY port aliases.
+  Retain the saved low-byte FD paging override; even-port reads retain
+  FE/keyboard priority.
+- Commit CPU I/O writes once on nWR assertion, preserving repeated identical
+  writes and their timestamps.
+- Replace per-pixel FE capture/audio scanning with one shared, preallocated
+  time/value history. Expand colour changes into border spans and integrate
+  bit-4 changes for beeper audio while preserving sampling phase.
+
+### Fixed
+
+- Support the paging and AY aliases used by Rage and EyeAche, allowing both demos
+  to advance beyond their previous failures.
 - Align the cold-start 3.5 MHz CPU clock with raster boundaries, removing the
   one-pixel border-to-paper gap in pent128.tap.
 
 ## 0.2.2 — 2026-11-04
-
-- Replace per-pixel FE capture/audio scanning with a shared preallocated time/value
-  event history. Preserve repeated writes and sampling phase; expand only colour
-  changes into border spans and integrate bit-4 changes for beeper audio.
-
-- Add AY register readback, timestamped write/reset capture and fixed 1.75 MHz
-  tone/noise/envelope synthesis on 128K machines. Commit CPU I/O writes once on
-  nWR assertion, preserving repeated identical writes.
-- Add AY enable, ABC/ACB/Mono stereo, volume and middle-channel mix controls.
-  Mix beeper and AY in the worker at the host sample rate; recycle bounded stereo
-  PCM buffers through AudioWorklet. Muting and backpressure preserve chip history.
-
-- Support flash loading from the bundled 128K Tape Loader menu through real
-  keyboard input and CPU returns. Preserve mounted tape position across ROM
-  paging and load into the selected RAM bank. Honor TZX 48K-only stops by model.
-
-- Add 128K memory paging with cached page references, protected ROM slots,
-  independent screen RAM selection, paging lock, and reset with RAM retention.
-- Add a saved Machine checkbox selecting exact 7FFD or low-byte FD decoding.
-- Bundle the 128K ROM; accept complete 32 KiB ROM pairs or pair a selected
-  16 KiB 128K ROM with the bundled 48K firmware. Keep 48K imports supported.
 
 - Compile direct memory dispatch for fully covered pages without interceptors.
   Support conditional, prioritized memory interceptors with pass-through reads
