@@ -9,6 +9,7 @@ import {
 } from "solid-js";
 import type { AyStereo, SoundSettings, StereoSink } from "../audio/mixer";
 import { SoundOutput } from "../audio/output";
+import type { DiskState } from "../devices/betaDisk";
 import type { KeyboardDevice } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import {
@@ -21,11 +22,14 @@ import {
   type LibraryFile,
   prepareImport,
 } from "../files/library";
+import { sclToTrd } from "../files/scl";
+import { trdBoot } from "../files/trd";
 import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 import type { RasterTiming } from "../machine/config";
 import { createMachine } from "../machine/machine";
 import { loadBundledRom } from "../rom/bundledRom";
 import { complete128Rom } from "../rom/romPair";
+import { ROM_REQUIRED } from "../rom/trdos";
 import { createHostLoop } from "../runloop/hostLoop";
 import {
   openDefaultBackend,
@@ -50,6 +54,18 @@ export const MACHINE_METER_REFRESH_MS = 320;
 
 /** The part of the machine contract the UI needs. */
 export interface MachineLike {
+  readonly diskState?: DiskState;
+  setDosRom?(bytes: Uint8Array | null): void | Promise<void>;
+  mountDisk?(
+    bytes: Uint8Array,
+    id: string,
+    name: string,
+    autoRun?: boolean,
+    dirty?: boolean,
+  ): void | Promise<void>;
+  runDisk?(index: number): void | Promise<void>;
+  ejectDisk?(): void | Promise<void>;
+  exportDisk?(saved?: boolean): Uint8Array | Promise<Uint8Array>;
   takeElapsedTicks(): number;
   setPcmSink?(sink?: StereoSink): void;
   configureSound?(settings: SoundSettings, sampleRate: number): void;
@@ -129,6 +145,16 @@ export interface CreateStoreDeps {
 }
 
 export interface Store {
+  readonly disk: Accessor<DiskState | undefined>;
+  readonly dosRom: Accessor<RomRecord | null>;
+  readonly dosRomStatus: Accessor<string>;
+  readonly diskChangePending: Accessor<boolean>;
+  resolveDiskChange(choice: "download" | "discard" | "cancel"): void;
+  importDosRom(file: File): Promise<void>;
+  removeDosRom(): Promise<void>;
+  ejectDisk(): Promise<void>;
+  downloadDisk(): Promise<void>;
+  runDisk(index: number): Promise<void>;
   readonly keyboardColor: Accessor<"theme" | "light" | "dark">;
   setKeyboardColor(value: "theme" | "light" | "dark"): void;
   readonly soundEnabled: Accessor<boolean>;
@@ -239,6 +265,60 @@ export async function createAppStore(
     const [pendingImport, setPendingImport] = createSignal<ImportBatch | null>(
       null,
     );
+    const [disk, setDisk] = createSignal<DiskState>();
+    const [dosRom, setDosRom] = createSignal<RomRecord | null>(null);
+    const [dosRomStatus, setDosRomStatus] = createSignal(
+      "No ROM selected · basic loading available without ROM",
+    );
+    const [diskChangePending, setDiskChangePending] = createSignal(false);
+    let resolveDiskChange:
+      | ((choice: "download" | "discard" | "cancel") => void)
+      | undefined;
+    const downloadDisk = async () => {
+      const active = machine();
+      if (!active?.exportDisk || !active.diskState?.id) return;
+      const bytes = await active.exportDisk();
+      const blob = new Blob([new Uint8Array(bytes)], {
+        type: "application/octet-stream",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = (
+        active.diskState.name.split("/").pop() ?? "disk.trd"
+      ).replace(/\.(trd|scl)$/i, "-modified.trd");
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      refresh();
+    };
+    let resumeDiskAction = false;
+    const finishDiskAction = () => {
+      refresh();
+      if (resumeDiskAction && !machine()?.diskState?.romRequired) store.run();
+      resumeDiskAction = false;
+    };
+    const allowDiskChange = async () => {
+      const active = machine();
+      const wasRunning = isRunning();
+      store.pause();
+      if (active instanceof WorkerMachine) await active.pauseExecution();
+      resumeDiskAction = wasRunning;
+      if (!active?.diskState?.dirty) return true;
+      setDiskChangePending(true);
+      const choice = await new Promise<"download" | "discard" | "cancel">(
+        (resolve) => {
+          resolveDiskChange = resolve;
+        },
+      );
+      resolveDiskChange = undefined;
+      setDiskChangePending(false);
+      if (choice === "download") await downloadDisk();
+      if (choice === "cancel" && wasRunning) {
+        store.run();
+        resumeDiskAction = false;
+      }
+      return choice !== "cancel";
+    };
     const commitImport = async (
       batch: ImportBatch,
       replaceIds: readonly string[],
@@ -389,12 +469,14 @@ export async function createAppStore(
     let tickMachine: MachineLike | null = null;
     let elapsedTicks = 0;
     let lastMeterUpdate = -Infinity;
+    let romRequired = false;
     const refresh = () => {
       const active = machine();
       const replaced = active !== tickMachine;
       if (replaced) {
         tickMachine = active;
         elapsedTicks = 0;
+        romRequired = false;
       }
       if (!active) {
         setStatus({
@@ -411,6 +493,12 @@ export async function createAppStore(
         refreshPresentation(null);
         return;
       }
+      const needsRom = active.diskState?.romRequired ?? false;
+      if (needsRom && !romRequired) setError(ROM_REQUIRED);
+      else if (!needsRom && romRequired && untrack(error) === ROM_REQUIRED)
+        setError(null);
+      romRequired = needsRom;
+      setDisk(active.diskState);
       elapsedTicks += active.takeElapsedTicks();
       const running = loop?.isRunning() ?? false;
       const now = performance.now();
@@ -467,6 +555,8 @@ export async function createAppStore(
         return false;
       }
 
+      const selectedDos = dosRom();
+      if (selectedDos) void next.setDosRom?.(selectedDos.bytes);
       stopLoop();
       setRom({ name, bytes: new Uint8Array(bytes), updatedAt: Date.now() });
       unsubscribeKeyboard?.();
@@ -496,7 +586,10 @@ export async function createAppStore(
             setError(
               messageForError(cause, "The host loop stopped unexpectedly."),
             );
-            stopLoop();
+            if (cause instanceof Error && cause.message === ROM_REQUIRED) {
+              loop?.pause();
+              setIsRunning(false);
+            } else stopLoop();
             refresh();
           },
         });
@@ -537,8 +630,122 @@ export async function createAppStore(
 
     const activateRom = (record: RomRecord): boolean =>
       installMachine(record.bytes, record.name);
+    const activateWithDisk = async (record: RomRecord): Promise<boolean> => {
+      const active = machine();
+      if (!active?.diskState?.id || !active.exportDisk)
+        return activateRom(record);
+      store.pause();
+      if (active instanceof WorkerMachine) await active.pauseExecution();
+      const bytes = await active.exportDisk(false),
+        media = active.diskState;
+      if (active !== machine() || !activateRom(record)) return false;
+      await machine()?.mountDisk?.(
+        bytes,
+        media.id,
+        media.name,
+        false,
+        media.dirty,
+      );
+      refresh();
+      return true;
+    };
 
     store = {
+      disk,
+      dosRom,
+      dosRomStatus,
+      diskChangePending,
+      resolveDiskChange(choice) {
+        resolveDiskChange?.(choice);
+      },
+      async downloadDisk() {
+        try {
+          await downloadDisk();
+        } catch (cause) {
+          setError(messageForError(cause, "Download failed."));
+        }
+      },
+      async ejectDisk() {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          if (await allowDiskChange()) {
+            await machine()?.ejectDisk?.();
+            refresh();
+          }
+        } catch (cause) {
+          setError(messageForError(cause, "Eject failed."));
+        } finally {
+          finishDiskAction();
+          setFilesBusy(false);
+        }
+      },
+      async runDisk(index) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          await machine()?.runDisk?.(index);
+          store.run();
+          store.focusScreen();
+          refresh();
+        } catch (cause) {
+          setError(messageForError(cause, "Disk Run failed."));
+        } finally {
+          finishDiskAction();
+          setFilesBusy(false);
+        }
+      },
+      async importDosRom(file) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          if (bytes.length !== ROM_SIZE)
+            throw new Error("TR-DOS ROM must be exactly 16 KiB.");
+          const record = { name: file.name, bytes, updatedAt: Date.now() };
+          await machine()?.setDosRom?.(bytes);
+          setDosRom(record);
+          setError(null);
+          refresh();
+          try {
+            await backend.saveRom(record, "trdos");
+            setDosRomStatus(
+              backend.persistent
+                ? "ROM saved in this browser"
+                : "ROM loaded for this session only",
+            );
+          } catch {
+            setDosRomStatus("ROM loaded for this session; saving failed");
+          }
+        } catch (cause) {
+          setError(messageForError(cause, "TR-DOS ROM could not be loaded."));
+        } finally {
+          setFilesBusy(false);
+        }
+      },
+      async removeDosRom() {
+        if (filesBusy() || !dosRom()) return;
+        setFilesBusy(true);
+        const active = machine(),
+          wasRunning = isRunning();
+        store.pause();
+        try {
+          if (active instanceof WorkerMachine) await active.pauseExecution();
+          await backend.deleteRom("trdos");
+          await active?.setDosRom?.(null);
+          setDosRom(null);
+          setDosRomStatus(
+            "No ROM selected · basic loading available without ROM",
+          );
+          refresh();
+          if (wasRunning && !active?.diskState?.dosEnabled) store.run();
+        } catch (cause) {
+          setError(messageForError(cause, "TR-DOS ROM could not be removed."));
+          if (wasRunning) store.run();
+        } finally {
+          setFilesBusy(false);
+        }
+      },
       keyboardColor,
       setKeyboardColor(value) {
         setKeyboardColor(value);
@@ -615,11 +822,17 @@ export async function createAppStore(
         if (filesBusy() || pendingImport()) return;
         setFilesBusy(true);
         try {
+          const active = machine();
+          const mounted = active?.diskState?.id === id;
+          if (mounted && !(await allowDiskChange())) return;
           await backend.deleteFile(id);
+          if (mounted) await active?.ejectDisk?.();
+          refresh();
           setFiles(await backend.listFiles());
         } catch (cause) {
           setError(messageForError(cause, "Delete failed."));
         } finally {
+          finishDiskAction();
           setFilesBusy(false);
         }
       },
@@ -638,13 +851,24 @@ export async function createAppStore(
           if (active !== machine())
             throw new Error("Machine changed; please load again.");
           audio.reset();
-          await active.loadTape(file.bytes, file.name);
+          if (/\.(trd|scl)$/i.test(file.name)) {
+            if (!active.mountDisk)
+              throw new Error("Disk loading is unavailable.");
+            const bytes = /\.scl$/i.test(file.name)
+              ? sclToTrd(file.bytes)
+              : file.bytes;
+            if (!(await allowDiskChange())) return;
+            await active.mountDisk(bytes, file.id, file.name);
+            refresh();
+            if (!trdBoot(active.diskState?.catalog ?? [])) return;
+          } else await active.loadTape(file.bytes, file.name);
           if (active !== machine()) return;
           store.run();
           store.focusScreen();
         } catch (cause) {
           setError(messageForError(cause, "Load failed."));
         } finally {
+          finishDiskAction();
           setFilesBusy(false);
         }
       },
@@ -683,6 +907,10 @@ export async function createAppStore(
       },
       run() {
         const active = machine();
+        if (active?.diskState?.romRequired) {
+          setError(ROM_REQUIRED);
+          return;
+        }
         if (!active || !loop) {
           setError("Choose a valid ROM before starting the machine.");
           return;
@@ -706,6 +934,10 @@ export async function createAppStore(
       },
       stepFrame() {
         const active = machine();
+        if (active?.diskState?.romRequired) {
+          setError(ROM_REQUIRED);
+          return;
+        }
         if (!active) {
           setError("Choose a valid ROM before stepping.");
           return;
@@ -718,6 +950,7 @@ export async function createAppStore(
           setError(
             messageForError(cause, "The machine could not advance a frame."),
           );
+          refresh();
         }
       },
       setReset(pressed: boolean) {
@@ -726,12 +959,43 @@ export async function createAppStore(
         refresh();
       },
       coldBoot() {
+        if (filesBusy()) return;
         const selected = rom();
         if (!selected) {
           setError("There is no ROM to cold boot.");
           return;
         }
-        if (activateRom(selected)) store.focusScreen();
+        const active = machine();
+        if (!active?.diskState?.id || !active.exportDisk) {
+          if (activateRom(selected)) store.focusScreen();
+          return;
+        }
+        store.pause();
+        setFilesBusy(true);
+        void (async () => {
+          try {
+            if (active instanceof WorkerMachine) await active.pauseExecution();
+            const bytes = await active.exportDisk?.(false);
+            const state = active.diskState;
+            if (!bytes || !state) return;
+            if (active !== machine()) return;
+            if (activateRom(selected)) {
+              await machine()?.mountDisk?.(
+                bytes,
+                state.id,
+                state.name,
+                false,
+                state.dirty,
+              );
+              refresh();
+              store.focusScreen();
+            }
+          } catch (cause) {
+            setError(messageForError(cause, "Cold boot failed."));
+          } finally {
+            setFilesBusy(false);
+          }
+        })();
       },
       setVideoPreset(id: string) {
         const next = VIDEO_PRESETS.find((p) => p.id === id);
@@ -757,7 +1021,10 @@ export async function createAppStore(
                 setError(
                   messageForError(cause, "The host loop stopped unexpectedly."),
                 );
-                stopLoop();
+                if (cause instanceof Error && cause.message === ROM_REQUIRED) {
+                  loop?.pause();
+                  setIsRunning(false);
+                } else stopLoop();
                 refresh();
               },
             });
@@ -800,13 +1067,14 @@ export async function createAppStore(
         persistConfig();
       },
       async useBundled128Rom() {
+        if (filesBusy()) return;
         try {
           const record = await loadBundledRom("128.rom");
           record.bytes = await complete128Rom(
             record.bytes,
             async () => (await loadBundledRom()).bytes,
           );
-          if (!activateRom(record)) return;
+          if (filesBusy() || !(await activateWithDisk(record))) return;
           store.focusScreen();
           await persistRom(record);
         } catch (cause) {
@@ -816,6 +1084,7 @@ export async function createAppStore(
         }
       },
       async importRom(file: File, as128 = false) {
+        if (filesBusy()) return;
         let bytes: Uint8Array;
         try {
           bytes = validateRomBytes(await file.arrayBuffer());
@@ -833,19 +1102,25 @@ export async function createAppStore(
           );
           return;
         }
+        if (filesBusy()) return;
         const record = validateRomRecord({
           name: file.name || "selected.rom",
           bytes,
         });
-        if (!activateRom(record)) return;
-        store.focusScreen();
-        await persistRom(record);
+        try {
+          if (!(await activateWithDisk(record))) return;
+          store.focusScreen();
+          await persistRom(record);
+        } catch (cause) {
+          setError(messageForError(cause, "ROM replacement failed."));
+        }
       },
       refresh,
       clearError() {
         setError(null);
       },
       dispose() {
+        resolveDiskChange?.("cancel");
         machine()?.keyboard.releaseAll();
         unsubscribeKeyboard?.();
         stopLoop();
@@ -867,6 +1142,21 @@ export async function createAppStore(
         );
       }
 
+      try {
+        const savedDos = await backend.loadRom("trdos");
+        if (savedDos) {
+          if (savedDos.bytes.length !== ROM_SIZE)
+            throw new Error("Stored TR-DOS ROM has invalid size.");
+          setDosRom(savedDos);
+          setDosRomStatus(
+            backend.persistent
+              ? "ROM restored from this browser"
+              : "Session-only ROM",
+          );
+        }
+      } catch (cause) {
+        setDosRomStatus(messageForError(cause, "TR-DOS ROM restore failed."));
+      }
       try {
         const saved = await backend.loadRom();
         if (saved) {

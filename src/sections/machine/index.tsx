@@ -21,7 +21,11 @@ export const MachineSection: Component = () => {
           class="status-pill"
           classList={{ "is-running": store.isRunning() }}
         >
-          {store.isRunning() ? "running" : "paused"}
+          {store.disk()?.romRequired
+            ? "TR-DOS ROM required"
+            : store.isRunning()
+              ? "running"
+              : "paused"}
         </span>
       }
     >

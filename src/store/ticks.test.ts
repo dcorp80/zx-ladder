@@ -7,7 +7,12 @@ import { createAppStore, MACHINE_METER_REFRESH_MS } from ".";
 it("accumulates actual slots across chunks, presets and reset, clearing only on replacement", async () => {
   const store = await createAppStore({
     backend: new MemoryBackend({
-      initial: { name: "test.rom", bytes: new Uint8Array(16384) },
+      initial: {
+        name: "test.rom",
+        bytes: Uint8Array.from({ length: 16384 }, (_, i) =>
+          i === 0 ? 0x76 : 0,
+        ),
+      },
     }),
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),
@@ -42,7 +47,12 @@ it("throttles running meters while retaining every tick and updating presentatio
   const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
   const store = await createAppStore({
     backend: new MemoryBackend({
-      initial: { name: "test.rom", bytes: new Uint8Array(16384) },
+      initial: {
+        name: "test.rom",
+        bytes: Uint8Array.from({ length: 16384 }, (_, i) =>
+          i === 0 ? 0x76 : 0,
+        ),
+      },
     }),
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),

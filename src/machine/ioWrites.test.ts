@@ -231,7 +231,7 @@ it("suppresses strobes through a held reset and the final stretched reset edge",
   machine.cpu.clockEdge = () => {
     Object.assign(machine.cpu.bus, {
       nWR: edge++ % 2 === 0 ? 1 : 0,
-      nIORQ: 0,
+      nIORQ: edge % 2 === 1 ? 1 : 0,
       nM1: 1,
       addr: 0xfe,
       data: 7,

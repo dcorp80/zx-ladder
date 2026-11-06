@@ -21,6 +21,7 @@ export interface MemoryBackendOptions {
 /** In-memory backend used by tests and by the session-only browser fallback. */
 export class MemoryBackend implements StorageBackend {
   readonly persistent: boolean;
+  private extraRoms = new Map<string, RomRecord>();
   private record: RomRecord | null;
   private readonly loadFailure?: Error;
   private readonly saveFailure?: Error;
@@ -50,13 +51,21 @@ export class MemoryBackend implements StorageBackend {
     this.files.delete(id);
   }
 
-  async loadRom(): Promise<RomRecord | null> {
+  async deleteRom(key = "selected"): Promise<void> {
+    if (this.saveFailure) throw this.saveFailure;
+    if (key === "selected") this.record = null;
+    else this.extraRoms.delete(key);
+  }
+  async loadRom(key = "selected"): Promise<RomRecord | null> {
     if (this.loadFailure) throw this.loadFailure;
-    return this.record ? cloneRomRecord(this.record) : null;
+    const record = key === "selected" ? this.record : this.extraRoms.get(key);
+    return record ? cloneRomRecord(record) : null;
   }
 
-  async saveRom(record: RomRecord): Promise<void> {
+  async saveRom(record: RomRecord, key = "selected"): Promise<void> {
     if (this.saveFailure) throw this.saveFailure;
-    this.record = cloneRomRecord(validateRomRecord(record));
+    const copy = cloneRomRecord(validateRomRecord(record));
+    if (key === "selected") this.record = copy;
+    else this.extraRoms.set(key, copy);
   }
 }

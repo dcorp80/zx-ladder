@@ -23,9 +23,9 @@ export interface IoClaim {
   priority?: number;
   selected?(address: number): boolean;
   blockLower?: boolean;
-  /** Pure pin sample; can be called repeatedly during an I/O cycle. */
+  /** One qualified nIORQ falling edge; reads may consume device data. */
   read?(address: number): number;
-  /** CPU writes commit once on the qualified nWR falling edge. */
+  /** CPU writes commit once on the qualified nIORQ falling edge. */
   write?(address: number, value: number): void;
 }
 export interface ClockContext {

@@ -5,8 +5,14 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.3.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.4.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
+
+**New in 0.4.0: TR-DOS disks, including basic TRD and SCL loading without a
+TR-DOS ROM.** Add a disk or ZIP in Files and press Load. Ladder runs `boot.B`
+or the sole BASIC file automatically; other BASIC files have a Run button.
+For programs that need deeper TR-DOS routines, select your own ROM in the
+TR-DOS section. [Disk support and compatibility](#tr-dos-disks).
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
 On first visit, the bundled **48K ROM** is loaded and saved in IndexedDB.
@@ -147,11 +153,11 @@ preset retains its double-quote mapping.
 
 ## Files and flash loading
 
-The Files section stores TAP and TZX files in IndexedDB. Add accepts multiple TAP/TZX/ZIP
+The Files section stores TAP, TZX, TRD and SCL files in IndexedDB. Add accepts multiple TAP/TZX/TRD/SCL/ZIP
 files; files can also be dropped anywhere in the emulator window. ZIPs retain
-only TAP/TZX members, grouped by archive name with full member paths. Replacements
+only TAP/TZX/TRD/SCL members, grouped by archive name with full member paths. Replacements
 require confirmation. Archive reimports merge members; deleting a stored file
-does not alter the copy already mounted in the machine.
+does not alter a mounted tape. Deleting the mounted TRD or SCL also ejects it.
 
 Load validates the tape before changing the machine. With the bundled 128K ROM,
 it resets to the main menu, waits for its verified keyboard polling loop, and
@@ -175,7 +181,7 @@ are rejected before reset. Custom tape routines requiring pulse playback, snapsh
 not implemented. ZIP supports stored and deflated entries in modern browsers
 with DecompressionStream; encrypted, nested, multi-volume and ZIP64 archives
 are not supported. Import limits: 32 MiB per input, 16 MiB per ZIP member,
-64 MiB extracted tape data per batch, and 2048 directory entries per ZIP.
+64 MiB extracted media data per batch, and 2048 directory entries per ZIP.
 
 
 
@@ -194,6 +200,68 @@ snapshots and unknown block types are rejected before reset. Accepting turbo
 block data does not emulate a custom loader's pulses: the program must still
 call the supported ROM entry. TZX parsing follows the
 [format specification](https://worldofspectrum.net/TZXformat.html).
+
+## TR-DOS disks
+
+**Basic TRD and SCL support works without a TR-DOS ROM**, on both 48K and 128K
+machines. Ladder handles standard BASIC disk loading and common sector-loading
+calls, including banked multiloaders. Programs using unsupported DOS routines
+pause with a clear ROM-required message; add your own TR-DOS ROM to continue.
+The TR-DOS ROM is optional and is never bundled.
+
+Load a TRD or SCL from Files to mount it in drive A and show its catalog in TR-DOS.
+`boot.B`, or the sole BASIC file when no boot exists, runs automatically; other
+BASIC files have a Run button. Running a file resets and starts the machine
+automatically. Mounting a disk without a boot candidate leaves execution intact.
+Full-size and shortened 40/80-track single/double-sided TRD images are supported. Images must contain complete 256-byte sectors and fit the geometry
+declared in the system sector. Omitted trailing sectors read as zero; writes
+extend the runtime image as needed without changing the imported original.
+
+SCL files are kept in Files in their original form and converted to a standard
+640 KiB TRD only when loaded. Conversion preserves every file descriptor and
+sector payload, including embedded machine code and the current relaxed BASIC
+handling. Catalog, boot selection, writes, eject and ROM-free loading share the
+TRD path. **Download TRD** exports the writable disk as `.trd`, even when the
+source was SCL. SCL export is not implemented. A conversion cannot recover the
+original disk positions omitted by SCL, so hardcoded sector loaders may fail.
+SCL checksum bytes may be little- or big-endian; both are accepted. Missing or
+mismatched checksums are warnings. Truncated descriptors/payloads, more than 128
+files or data exceeding disk capacity are rejected before mounting.
+
+Select a 16 KiB ROM in TR-DOS when needed; it persists independently of Spectrum
+firmware. **Remove ROM** clears the active
+and saved TR-DOS ROM while retaining the mounted disk and its changes. Execution
+pauses if DOS currently owns ROM space. Without it, Ladder implements
+`#3D03` BASIC LOAD/RUN with literal filenames and optional decimal CODE address
+and length (including literal `VAL "25088"` forms), plus a limited `#3D13` API:
+functions 00–06, 08, 0A, 0E, 13, 14, 17, 18 (hexadecimal), and workspace
+initialization at `#3D21`. Unsupported syntax, services, ROM data access and entry through `#3D00`/`#3D2F` pause with
+“You need to provide TR-DOS ROM” in the main error banner and Machine status;
+the TR-DOS section expands to show recovery actions. Run/Step repeat that
+explanation while blocked. Select a ROM and press Run to retry the pending
+fetch; programs relying on earlier ROM-free state may need reset and reload.
+Reset and Cold boot are offered if no ROM is supplied. ROM-free BASIC loading
+checks file bounds and program/variables lengths, but permits missing autostart
+trailers and embedded machine code. A missing or unrecognized trailer defaults
+Run to the beginning of the program.
+A supplied ROM interprets the original metadata itself.
+
+The Beta Disk controller implements sector reads/writes, seek/step, multisector
+transfers, force interrupt and synthetic read-address data. Seek is immediate,
+bytes transfer on demand, and index pulses follow emulated time. Raw-track
+formatting and timing/protection tricks are unsupported. DOS paging changes on
+opcode-fetch MREQ assertion before supplying the same opcode. Standalone 48K
+BASIC is eligible; 128K entry requires 7FFD bit 4. Fetching RAM exits DOS. DOS port
+claims use this latch even without media; tape/Caps Lock overlays are suppressed.
+All ordinary CPU port reads/writes latch once at qualified IORQ assertion.
+
+Writes change a session copy. **Download TRD** exports it without overwriting the
+Files original. Modified eject/replacement/deletion offers Download, Discard or
+Cancel. Reset, Cold boot and Spectrum ROM replacement retain mounted media and
+modifications; browser restart does not retain unsaved runtime changes.
+
+An optional integration check uses your own firmware without redistributing it:
+`TRDOS_ROM=/absolute/path/trdos.rom npx vitest run src/rom/trdos.test.ts`.
 
 ## Late INT
 
@@ -233,7 +301,7 @@ The workflow in `.github/workflows/pages.yml` uses Node 24 and `npm ci`, then
 runs lint, typecheck, tests, and the production build for pull requests and
 pushes to `main`. Deployment follows Explorer's release-tag/manual pattern:
 
-- Push a `ladder-v*` release tag (for example `ladder-v0.3.0`, after updating
+- Push a `ladder-v*` release tag (for example `ladder-v0.4.0`, after updating
   `package.json` and its lockfile) to publish that revision.
 - Alternatively, run **CI and deploy Ladder to GitHub Pages** manually from
   GitHub Actions and select the revision to publish.

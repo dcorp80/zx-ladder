@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.4.0 — 2026-11-06
+
+### Added
+
+- Beta Disk disk emulation on 48K and 128K machines, with drive A, sector
+  reads/writes, seek/step, multisector transfers and DOS ROM paging.
+- **Basic TRD and SCL loading without a TR-DOS ROM.** Support BASIC disk LOAD/RUN
+  through `#3D03`, decimal and literal VAL CODE arguments, and a subset of the
+  `#3D13` API for common loaders, including banked RAM loads.
+- Import TRD and SCL files directly or inside ZIPs through Files and drag-and-drop.
+  Support shortened TRDs; convert SCL to TRD on loading while retaining the
+  original archive bytes in the library.
+- TR-DOS section with disk catalog, automatic `boot.B` or sole-BASIC startup,
+  per-file Run, Eject and TRD download. Writes change a session copy; modified
+  eject/replacement/deletion offers Download, Discard or Cancel.
+- Select, persist and remove a user-provided TR-DOS ROM independently of Spectrum
+  firmware. Unsupported ROM-free operations pause with a visible ROM-required
+  message and recovery actions. TR-DOS firmware is not bundled.
+
+### Changed
+
+- Latch all ordinary CPU port reads and writes once on the qualified nIORQ
+  high-to-low transition. Hold read data on the CPU bus through sampling and WAIT.
+- Retain mounted disk data and modifications across Reset, Cold boot and Spectrum
+  ROM replacement. Deleting a mounted disk's Files entry also ejects it.
+- Allow ROM-free BASIC files with missing autostart trailers and embedded machine
+  code while retaining file bounds checks. Accept either SCL checksum byte order;
+  missing or mismatched checksums produce warnings.
+
+### Fixed
+
+- Match TR-DOS next-sector pointers for packed BASIC allocations and exact-sector
+  file lengths, allowing Atarin and AcrossTheEdge fix3 loaders to progress without
+  a TR-DOS ROM.
+- Keep tape and Caps Lock instruction overlays inactive while DOS owns ROM space.
+- Make ROM-required stops visible in the main error banner and Machine status,
+  expand TR-DOS recovery controls, and explain blocked Run/Step actions.
+
 ## 0.3.0 — 2026-11-05
 
 ### Added

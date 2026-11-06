@@ -3,6 +3,7 @@ import { keyboardSection } from "./keyboard";
 import { machineSection } from "./machine";
 import { settingsSection } from "./settings";
 import { soundSection } from "./sound";
+import { trdosSection } from "./trdos";
 import type { SectionModule } from "./types";
 import { videoSection } from "./video";
 
@@ -12,6 +13,7 @@ export const DEFAULT_SECTION_ORDER: SectionModule[] = [
   soundSection,
   keyboardSection,
   filesSection,
+  trdosSection,
   settingsSection,
 ];
 

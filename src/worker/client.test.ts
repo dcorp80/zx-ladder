@@ -46,7 +46,9 @@ afterEach(() => {
 });
 it("provides acknowledged control, stable render storage, keyboard and coherent memory reads", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);
-  const rom = new Uint8Array(16384);
+  const rom = Uint8Array.from({ length: 16384 }, (_, i) =>
+    i === 0 ? 0x76 : 0,
+  );
   rom[0] = 0x76;
   const machine = new WorkerMachine({ rom });
   const onUpdate = vi.fn(),
@@ -91,7 +93,9 @@ it("provides acknowledged control, stable render storage, keyboard and coherent 
 });
 it("rejects outstanding requests and reports worker failure once", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);
-  const machine = new WorkerMachine({ rom: new Uint8Array(16384) });
+  const machine = new WorkerMachine({
+    rom: Uint8Array.from({ length: 16384 }, (_, i) => (i === 0 ? 0x76 : 0)),
+  });
   const onError = vi.fn();
   machine.createLoop({ onError });
   const inspection = machine.inspectMemory(0, 4);
@@ -106,7 +110,9 @@ it("rejects outstanding requests and reports worker failure once", async () => {
 
 it("accounts for execution in rejected frames and across preset changes exactly once", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);
-  const machine = new WorkerMachine({ rom: new Uint8Array(16384) });
+  const machine = new WorkerMachine({
+    rom: Uint8Array.from({ length: 16384 }, (_, i) => (i === 0 ? 0x76 : 0)),
+  });
   machine.createLoop({});
   try {
     // Queue execution, then invalidate its presentation before its reply arrives.
@@ -131,7 +137,9 @@ it("accounts for execution in rejected frames and across preset changes exactly 
 
 it("publishes the acknowledged stopped snapshot even when presentation snapshots are unavailable", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);
-  const machine = new WorkerMachine({ rom: new Uint8Array(16384) });
+  const machine = new WorkerMachine({
+    rom: Uint8Array.from({ length: 16384 }, (_, i) => (i === 0 ? 0x76 : 0)),
+  });
   const onUpdate = vi.fn();
   machine.createLoop({ onUpdate });
   try {
@@ -175,6 +183,38 @@ it("reports the selected RAM, ROM and screen after CPU paging and reset", async 
       romPage: 0,
       screenPage: 5,
     });
+  } finally {
+    machine.dispose();
+  }
+});
+it("keeps ROM-required stops recoverable and supports disk export/eject through the worker", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const rom = new Uint8Array(16384);
+  rom.set([0xc3, 0, 0x3d]);
+  const machine = new WorkerMachine({ rom });
+  const onError = vi.fn();
+  machine.createLoop({ onError });
+  try {
+    await machine.stepPixels(100);
+    expect(machine.diskState?.romRequired).toBe(true);
+    expect(LoopbackWorker.instances[0].terminated).toBe(false);
+    const dos = new Uint8Array(16384);
+    dos[0x3d00] = 0x76;
+    await machine.setDosRom(dos);
+    await machine.stepPixels(100);
+    expect(machine.diskState?.romRequired).toBe(false);
+    expect(onError).not.toHaveBeenCalled();
+    await machine.setDosRom(null);
+    expect((await machine.inspectMemory(0, 1))[0]).toBe(0xc3);
+    const bytes = new Uint8Array(655360);
+    bytes[0x8e3] = 0x16;
+    await machine.mountDisk(bytes, "a", "a.trd", false);
+    expect(machine.diskState?.id).toBe("a");
+    const exported = await machine.exportDisk();
+    expect(exported.length).toBe(bytes.length);
+    expect(exported.every((value, i) => value === bytes[i])).toBe(true);
+    await machine.ejectDisk();
+    expect(machine.diskState?.id).toBe("");
   } finally {
     machine.dispose();
   }

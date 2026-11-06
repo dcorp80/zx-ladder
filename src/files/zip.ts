@@ -1,5 +1,5 @@
 // ZIP central-directory reader. No paths are written to the host filesystem.
-// Only stored/deflated TAP/TZX members are expanded, with bounded output.
+// Only stored/deflated TAP/TZX/TRD/SCL members are expanded, with bounded output.
 const MAX_FILE = 16 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;
 export function crc32(bytes: Uint8Array): number {
@@ -50,7 +50,7 @@ export async function extractZip(
       bytes.subarray(p + 46, p + 46 + nameLength),
     );
     p = next;
-    if (!/\.(tap|tzx)$/i.test(name)) continue;
+    if (!/\.(tap|tzx|trd|scl)$/i.test(name)) continue;
     if (names.has(name)) throw new Error(`Duplicate ZIP member: ${name}`);
     names.add(name);
     if (flags & 1) throw new Error(`Encrypted ZIP member: ${name}`);

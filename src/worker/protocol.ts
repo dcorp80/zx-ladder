@@ -1,4 +1,5 @@
 import type { SoundSettings } from "../audio/mixer";
+import type { DiskState } from "../devices/betaDisk";
 import type { SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import type { VideoPreset } from "../devices/videoPresets";
@@ -38,6 +39,18 @@ export type Command =
     }
   | { type: "keyboard"; input: KeyboardCommand }
   | { type: "tape"; bytes: Uint8Array; name: string }
+  | { type: "dosRom"; bytes: Uint8Array | null }
+  | {
+      type: "diskMount";
+      bytes: Uint8Array;
+      id: string;
+      name: string;
+      autoRun: boolean;
+      dirty?: boolean;
+    }
+  | { type: "diskRun"; index: number }
+  | { type: "diskEject" }
+  | { type: "diskExport"; saved: boolean }
   | { type: "inspect"; address: number; length: number };
 export type Request = { id: number; epoch: number; command: Command };
 export type ToWorker =
@@ -48,6 +61,8 @@ export type ToWorker =
       bytes: Uint8Array | Uint8ClampedArray | Float32Array;
     };
 export interface MachineState {
+  disk?: DiskState;
+  running?: boolean;
   frameCount: number;
   framePosition: number;
   /** Slots since the previous emitted snapshot, including obsolete epochs. */

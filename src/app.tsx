@@ -8,6 +8,7 @@ import { KeyboardSection } from "./sections/keyboard";
 import { MachineSection } from "./sections/machine";
 import { SettingsSection } from "./sections/settings";
 import { SoundSection } from "./sections/sound";
+import { TrdosSection } from "./sections/trdos";
 import { VideoSection } from "./sections/video";
 import { useStore } from "./store";
 
@@ -71,7 +72,7 @@ export const App: Component = () => {
   return (
     <main class="app">
       <div class="file-drop-overlay" aria-hidden="true">
-        Drop TAP, TZX or ZIP files to add to Files
+        Drop TAP, TZX, TRD, SCL or ZIP files to add to Files
       </div>
       <AppShell />
       <Show when={store.error()}>
@@ -94,6 +95,7 @@ export const App: Component = () => {
         <SoundSection />
         <KeyboardSection />
         <FilesSection />
+        <TrdosSection />
         <SettingsSection />
       </div>
       <footer class="app-footer">

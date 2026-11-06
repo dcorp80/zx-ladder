@@ -21,8 +21,9 @@ export interface StorageBackend {
   getFile(id: string): Promise<StoredFile | null>;
   putFiles(files: readonly StoredFile[]): Promise<void>;
   deleteFile(id: string): Promise<void>;
-  loadRom(): Promise<RomRecord | null>;
-  saveRom(record: RomRecord): Promise<void>;
+  deleteRom(key?: string): Promise<void>;
+  loadRom(key?: string): Promise<RomRecord | null>;
+  saveRom(record: RomRecord, key?: string): Promise<void>;
 }
 
 export function cloneRomRecord(record: RomRecord): RomRecord {

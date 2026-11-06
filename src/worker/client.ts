@@ -1,4 +1,5 @@
 import type { SoundSettings, StereoSink } from "../audio/mixer";
+import type { DiskState } from "../devices/betaDisk";
 import { KeyboardDevice, type SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import {
@@ -120,6 +121,7 @@ export class WorkerMachine implements MachineLike {
   readonly keyboard: RemoteKeyboard;
   readonly counters = createCounters();
   readonly cpu = { regs: { pc: 0 } };
+  diskState?: DiskState;
   readonly tape = { status: "No tape mounted." };
   frameCount = 0;
   framePosition = 0;
@@ -198,6 +200,8 @@ export class WorkerMachine implements MachineLike {
     this.options?.onError?.(error);
   }
   private apply(state: MachineState): void {
+    this.diskState = state.disk;
+    if (state.disk?.romRequired) this.running = false;
     this.frameCount = state.frameCount;
     this.framePosition = state.framePosition;
     this.counters.set(state.counters);
@@ -220,7 +224,13 @@ export class WorkerMachine implements MachineLike {
       const waiting = this.pending.get(message.id);
       this.pending.delete(message.id);
       if (message.error) waiting?.reject(new Error(message.error));
-      else waiting?.resolve(message);
+      else {
+        if (message.state?.disk) {
+          this.diskState = message.state.disk;
+          if (this.diskState.romRequired) this.running = false;
+        }
+        waiting?.resolve(message);
+      }
       this.options?.onUpdate?.();
       return;
     }
@@ -335,6 +345,31 @@ export class WorkerMachine implements MachineLike {
     this.cpuLoad = null;
     this.rgba = new Uint8ClampedArray(this.width * this.height * 4);
     this.fire({ type: "video", preset });
+  }
+  async setDosRom(bytes: Uint8Array | null): Promise<void> {
+    await this.request({ type: "dosRom", bytes });
+  }
+  async mountDisk(
+    bytes: Uint8Array,
+    id: string,
+    name: string,
+    autoRun = true,
+    dirty = false,
+  ): Promise<void> {
+    this.epoch++;
+    await this.request({ type: "diskMount", bytes, id, name, autoRun, dirty });
+  }
+  async runDisk(index: number): Promise<void> {
+    this.epoch++;
+    await this.request({ type: "diskRun", index });
+  }
+  async ejectDisk(): Promise<void> {
+    await this.request({ type: "diskEject" });
+  }
+  async exportDisk(saved = true): Promise<Uint8Array> {
+    const reply = await this.request({ type: "diskExport", saved });
+    if (!reply.memory) throw new Error("No disk returned.");
+    return reply.memory;
   }
   async loadTape(bytes: Uint8Array, name: string): Promise<void> {
     this.epoch++;

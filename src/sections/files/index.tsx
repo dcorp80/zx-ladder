@@ -13,7 +13,7 @@ export function FilesSection() {
   return (
     <SectionFrame
       title="Files"
-      subtitle="TAP / TZX library · flash loading"
+      subtitle="TAP / TZX / TRD / SCL library"
       actions={
         <>
           <input
@@ -21,8 +21,8 @@ export function FilesSection() {
             hidden
             type="file"
             multiple
-            accept=".tap,.tzx,.zip"
-            aria-label="Add TAP, TZX or ZIP files"
+            accept=".tap,.tzx,.trd,.scl,.zip"
+            aria-label="Add TAP, TZX, TRD, SCL or ZIP files"
             onChange={(e) => {
               void store.importFiles(Array.from(e.currentTarget.files ?? []));
               e.currentTarget.value = "";
@@ -96,7 +96,10 @@ export function FilesSection() {
       <Show
         when={store.files().length}
         fallback={
-          <p>Add or drop TAP, TZX and ZIP files anywhere in the emulator.</p>
+          <p>
+            Add or drop TAP, TZX, TRD, SCL and ZIP files anywhere in the
+            emulator.
+          </p>
         }
       >
         <For each={groups()}>

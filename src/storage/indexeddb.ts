@@ -135,12 +135,23 @@ export class IndexedDbBackend implements StorageBackend {
     }
   }
 
-  async loadRom(): Promise<RomRecord | null> {
+  async deleteRom(key = SELECTED_ROM_KEY): Promise<void> {
+    const db = await openDatabase();
+    try {
+      const transaction = db.transaction(ROM_STORE, "readwrite");
+      const done = waitForTransaction(transaction);
+      transaction.objectStore(ROM_STORE).delete(key);
+      await done;
+    } finally {
+      db.close();
+    }
+  }
+  async loadRom(key = SELECTED_ROM_KEY): Promise<RomRecord | null> {
     const db = await openDatabase();
     try {
       const transaction = db.transaction(ROM_STORE, "readonly");
       const stored = await requestValue<PersistedRomRecord | undefined>(
-        transaction.objectStore(ROM_STORE).get(SELECTED_ROM_KEY),
+        transaction.objectStore(ROM_STORE).get(key),
       );
       if (!stored) return null;
       return validateRomRecord({
@@ -153,7 +164,7 @@ export class IndexedDbBackend implements StorageBackend {
     }
   }
 
-  async saveRom(record: RomRecord): Promise<void> {
+  async saveRom(record: RomRecord, key = SELECTED_ROM_KEY): Promise<void> {
     const validated = validateRomRecord(record);
     const db = await openDatabase();
     try {
@@ -162,7 +173,7 @@ export class IndexedDbBackend implements StorageBackend {
       const buffer = new ArrayBuffer(copy.bytes.byteLength);
       new Uint8Array(buffer).set(copy.bytes);
       const persisted: PersistedRomRecord = {
-        key: SELECTED_ROM_KEY,
+        key,
         name: copy.name,
         bytes: buffer,
         updatedAt: copy.updatedAt ?? Date.now(),

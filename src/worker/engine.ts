@@ -45,6 +45,8 @@ export class WorkerEngine {
     const m = this.machine;
     if (!m) throw new Error("Worker machine is not initialized");
     return {
+      disk: m.diskState,
+      running: this.running,
       frameCount: m.frameCount,
       framePosition: m.framePosition,
       tickDelta: m.takeElapsedTicks(),
@@ -127,6 +129,10 @@ export class WorkerEngine {
       },
       onError: (error) => {
         this.running = false;
+        if (this.machine?.disk.romRequired) {
+          this.update(true);
+          return;
+        }
         this.send({
           type: "error",
           error: error instanceof Error ? error.message : String(error),
@@ -154,6 +160,13 @@ export class WorkerEngine {
     try {
       this.execute(message);
     } catch (cause) {
+      if (this.machine?.disk.romRequired) {
+        this.running = false;
+        this.loop?.pause();
+        this.update(true);
+        this.send({ type: "reply", id: message.id, state: this.state() });
+        return;
+      }
       this.send({
         type: "reply",
         id: message.id,
@@ -275,6 +288,25 @@ export class WorkerEngine {
               break;
           }
           break;
+        }
+        case "dosRom":
+          m.setDosRom(c.bytes);
+          break;
+        case "diskMount":
+          m.mountDisk(c.bytes, c.id, c.name, c.autoRun, c.dirty);
+          break;
+        case "diskRun":
+          m.runDisk(c.index);
+          break;
+        case "diskEject":
+          m.ejectDisk();
+          break;
+        case "diskExport": {
+          const memory = m.exportDisk(c.saved);
+          this.send({ type: "reply", id, state: this.state(), memory }, [
+            memory.buffer,
+          ]);
+          return;
         }
         case "tape":
           m.loadTape(c.bytes, c.name);

@@ -17,6 +17,7 @@ export class BankedMemory implements Device {
   readonly romPages: number[][];
   readonly expanded: boolean;
   romIndex = 0;
+  dosRom?: number[];
   private screen: number[];
   readonly memory: readonly MemoryClaim[];
   constructor(rom: Uint8Array) {
@@ -62,7 +63,11 @@ export class BankedMemory implements Device {
   readonly readScreen = (address: number): number =>
     this.screen[address & 0x3fff];
   read(address: number): number {
-    return this.banks[(address & 0xffff) >>> 14][address & 0x3fff];
+    return (
+      (address & 0xc000) === 0 && this.dosRom
+        ? this.dosRom
+        : this.banks[(address & 0xffff) >>> 14]
+    )[address & 0x3fff];
   }
   write(address: number, value: number): void {
     const bank = (address & 0xffff) >>> 14;

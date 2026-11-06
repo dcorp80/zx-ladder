@@ -2,6 +2,7 @@ import { deflateRawSync } from "node:zlib";
 import { expect, it } from "vitest";
 import { MemoryBackend } from "../storage/memory";
 import { createAppStore } from "../store";
+import { sclFixture } from "../test/scl";
 import { fileId, prepareImport } from "./library";
 import { crc32, extractZip } from "./zip";
 
@@ -174,3 +175,54 @@ it("imports a 128K TZX whose data follows a 48K-only stop", async () => {
   expect(batch.files).toHaveLength(1);
   expect(batch.files[0].bytes).toEqual(bytes);
 });
+it.each([false, true])(
+  "imports TRD members alongside tapes in ZIPs (deflated=%s)",
+  async (deflated) => {
+    const disk = new Uint8Array(0x1200);
+    disk[0x8e3] = 0x16;
+    const batch = await prepareImport([
+      file(
+        "mixed.zip",
+        zip(
+          [
+            { name: "disk/game.TRD", bytes: disk },
+            { name: "tape/game.tap", bytes: tap },
+          ],
+          deflated,
+        ),
+      ),
+    ]);
+    expect(batch.messages).toEqual([]);
+    expect(batch.files.map((f) => f.name)).toEqual([
+      "disk/game.TRD",
+      "tape/game.tap",
+    ]);
+    expect(batch.files[0].group).toBe("mixed.zip");
+  },
+);
+
+it.each([false, true])(
+  "imports original SCL bytes directly and from mixed ZIPs (deflated=%s)",
+  async (deflated) => {
+    const scl = sclFixture();
+    const batch = await prepareImport([
+      file("direct.scl", scl),
+      file(
+        "mixed.zip",
+        zip(
+          [
+            { name: "disk/demo.SCL", bytes: scl },
+            { name: "tape/demo.tap", bytes: tap },
+          ],
+          deflated,
+        ),
+      ),
+    ]);
+    expect(batch.messages).toEqual([]);
+    expect(batch.files).toHaveLength(3);
+    expect(batch.files[0].bytes).toEqual(scl);
+    expect(batch.files[1].bytes).toEqual(scl);
+    expect(batch.files[1].group).toBe("mixed.zip");
+    expect(batch.files[1].warning).toBe("");
+  },
+);

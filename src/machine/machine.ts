@@ -6,6 +6,7 @@ import {
   type StereoSink,
 } from "../audio/mixer";
 import { AyDevice } from "../devices/ay";
+import { BetaDisk } from "../devices/betaDisk";
 import { BorderDevice, type FeBatch } from "../devices/border";
 import { KeyboardDevice } from "../devices/keyboard";
 import { Mcu } from "../devices/mcu";
@@ -18,8 +19,10 @@ import {
   validateVideoPreset,
 } from "../devices/videoPresets";
 import { parseTape } from "../files/tape";
+import { basicTape, dosLauncher, trdBoot } from "../files/trd";
 import { Spectrum48CapsLock } from "../rom/spectrum48CapsLock";
 import { Spectrum48Tape } from "../rom/spectrum48Tape";
+import { TrdosService } from "../rom/trdos";
 import {
   CPU_LOAD_SAMPLE_FRAMES,
   MACHINE_CONFIG,
@@ -113,6 +116,14 @@ export class Machine implements ClockContext {
   readonly border: BorderDevice;
   readonly keyboard = new KeyboardDevice();
   readonly portFeInput = new PortFeInputDevice();
+  readonly disk = new BetaDisk(() => this.elapsedTicks);
+  readonly dos: TrdosService;
+  get diskState() {
+    return this.disk.state;
+  }
+  get dosEnabled() {
+    return this.disk.dosEnabled;
+  }
   readonly tape: Spectrum48Tape;
   private readonly capsLock: Spectrum48CapsLock;
   video: RasterVideo;
@@ -180,6 +191,7 @@ export class Machine implements ClockContext {
         }
       : MACHINE_CONFIG;
     this.screenMemory = { readMemory: this.memory.readScreen };
+    this.dos = new TrdosService(this.memory, this.disk);
     this.tape = new Spectrum48Tape(this.memory, this.keyboard);
     this.capsLock = new Spectrum48CapsLock(this.memory, this.keyboard);
     this.mcu = new Mcu(this.memory, options.decodeFd, () => {
@@ -195,6 +207,7 @@ export class Machine implements ClockContext {
     this.updateInterruptPosition();
     this.bus = new DeviceBus([
       this.memory,
+      this.disk,
       ...(this.memory.expanded ? [this.mcu] : []),
       ...(this.ay ? [this.ay] : []),
       this.border,
@@ -223,6 +236,7 @@ export class Machine implements ClockContext {
     const video = this.videoFactory(preset);
     const bus = new DeviceBus([
       this.memory,
+      this.disk,
       ...(this.memory.expanded ? [this.mcu] : []),
       ...(this.ay ? [this.ay] : []),
       this.border,
@@ -312,8 +326,6 @@ export class Machine implements ClockContext {
         b.data = 255;
         this.interruptRemaining = 0;
         b.nINT = 1;
-      } else if (b.addr !== undefined) {
-        if (b.nRD === 0) b.data = this.bus.readIo(b.addr);
       }
     }
   }
@@ -322,6 +334,9 @@ export class Machine implements ClockContext {
     if (pressed && !this.resetHeld) {
       this.resetHalfCycles = 6;
       this.mcu.reset();
+      this.disk.reset();
+      this.memory.dosRom = undefined;
+      this.dos.reset();
       this.capsLock.reset();
       this.tape.reset();
     }
@@ -330,6 +345,46 @@ export class Machine implements ClockContext {
     this.ay?.setReset(this.cpu.bus.nRESET === 0);
   }
 
+  setDosRom(bytes: Uint8Array | null): void {
+    this.disk.setRom(bytes);
+    if (this.disk.dosEnabled) this.memory.dosRom = this.disk.rom;
+  }
+  mountDisk(
+    bytes: Uint8Array,
+    id: string,
+    name: string,
+    autoRun = true,
+    dirty = false,
+  ): void {
+    this.disk.mount(bytes, id, name);
+    this.disk.dirty = dirty;
+    this.memory.dosRom = this.disk.dosEnabled ? this.disk.rom : undefined;
+    this.dos.reset();
+    const boot = trdBoot(this.disk.state.catalog);
+    if (autoRun && boot) this.runDisk(boot.index);
+  }
+  ejectDisk(): void {
+    this.disk.eject();
+    this.memory.dosRom = this.disk.dosEnabled ? this.disk.rom : undefined;
+    this.dos.reset();
+  }
+  exportDisk(saved = true): Uint8Array {
+    if (!this.disk.bytes) throw new Error("No disk mounted.");
+    if (saved) this.disk.dirty = false;
+    return this.disk.bytes.slice();
+  }
+  runDisk(index: number): void {
+    const file = this.disk.state.catalog.find(
+      (f) => f.index === index && f.ext === "B",
+    );
+    if (!file || !this.disk.bytes)
+      throw new Error("BASIC file is no longer on the disk.");
+    const tape = this.disk.rom
+      ? dosLauncher(file.name)
+      : basicTape(this.disk.bytes, file);
+    this.loadTape(tape, "disk-start.tap");
+    this.dos.prepareBasic = this.disk.rom ? undefined : file;
+  }
   loadTape(bytes: Uint8Array, name: string): void {
     if (!this.tape.canMount)
       throw new Error("This ROM is not supported by the flash tape loader.");
@@ -350,24 +405,24 @@ export class Machine implements ClockContext {
     this.resolveInputs();
     const b = this.cpu.bus;
     const previousM1 = b.nM1;
-    const previousWr = b.nWR;
+    const previousIorq = b.nIORQ;
     this.cpu.clockEdge();
-    // Commit once at assertion, not on every sample of a held I/O strobe.
+    // Latch every ordinary port read/write once on nIORQ assertion.
     // Keep this before reset release and in the slot that produced the edge.
     if (
-      previousWr === 1 &&
-      b.nWR === 0 &&
+      previousIorq === 1 &&
       b.nIORQ === 0 &&
       b.nM1 === 1 &&
       b.nRESET === 1 &&
       b.nBUSACK === 1 &&
-      b.addr !== undefined &&
-      b.data !== undefined
+      b.addr !== undefined
     ) {
       // FE takes effect at its next raster sample. AY retains the I/O edge tick.
       this.feWriteDelay = afterBorder ? 1 : 0;
       try {
-        this.bus.writeIo(b.addr, b.data);
+        if (b.nRD === 0) b.data = this.bus.readIo(b.addr);
+        else if (b.nWR === 0 && b.data !== undefined)
+          this.bus.writeIo(b.addr, b.data);
       } finally {
         this.feWriteDelay = 0;
       }
@@ -437,9 +492,41 @@ export class Machine implements ClockContext {
         if (b.nMREQ !== 0) this.readActive = false;
         if (request && b.addr !== undefined) {
           if (b.nRD === 0) {
-            if (b.addr === 0x10a8 && b.nM1 === 0) this.capsLock.keyboardPoll();
+            const opcode = b.nM1 === 0;
+            if (opcode && b.nRESET === 1 && b.nBUSACK === 1) {
+              const before = this.disk.dosEnabled;
+              if (
+                (b.addr & 0xff00) === 0x3d00 &&
+                (!this.memory.expanded || this.mcu.latch & 16)
+              )
+                this.disk.dosEnabled = true;
+              else if (b.addr >= 0x4000) this.disk.dosEnabled = false;
+              if (before !== this.disk.dosEnabled) {
+                this.memory.dosRom = this.disk.dosEnabled
+                  ? this.disk.rom
+                  : undefined;
+                if (this.disk.dosEnabled) this.tape.cancel();
+                else this.tape.romChanged();
+                this.capsLock.reset();
+              }
+              this.dos.fetchRam(b.addr, true);
+            }
+            if (!this.dosEnabled && b.addr === 0x10a8 && opcode) {
+              this.dos.basicReady();
+              this.capsLock.keyboardPoll();
+            }
+            if (
+              !this.dosEnabled &&
+              opcode &&
+              b.addr === 0x0805 &&
+              this.tape.status === "Block 2/2 loaded; end of tape."
+            )
+              this.dos.basicReady();
             this.readValue =
-              this.tape.read(b.addr, b.nM1 === 0, this.cpu) ??
+              this.dos.read(b.addr, opcode, this.cpu) ??
+              (!this.dosEnabled
+                ? this.tape.read(b.addr, opcode, this.cpu)
+                : undefined) ??
               bus.readMemory(b.addr);
             this.readActive = true;
             b.data = this.readValue;
@@ -481,8 +568,9 @@ export class Machine implements ClockContext {
           this.borderFrameOffset = 0;
           video.finishFrame();
           this.keyboard.advanceFrame();
-          this.tape.frame();
-          if (this.cpu.bus.nRESET !== 0) this.capsLock.advanceFrame();
+          if (!this.dosEnabled) this.tape.frame();
+          if (this.cpu.bus.nRESET !== 0 && !this.dosEnabled)
+            this.capsLock.advanceFrame();
           counters[Counter.frames]++;
         } else if (this.elapsedTicks === this.nextAudioFlush) this.flushAudio();
       }
