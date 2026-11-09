@@ -5,14 +5,16 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.4.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.4.0: TR-DOS disks, including basic TRD and SCL loading without a
-TR-DOS ROM.** Add a disk or ZIP in Files and press Load. Ladder runs `boot.B`
-or the sole BASIC file automatically; other BASIC files have a Run button.
-For programs that need deeper TR-DOS routines, select your own ROM in the
-TR-DOS section. [Disk support and compatibility](#tr-dos-disks).
+**New in 0.5.0: Kempston mouse, joystick and gamepad input.** Choose keyboard
+joystick modes below the keyboard, or use a connected gamepad. Enable and capture
+the mouse in the bottommost Kempston section.
+[Controls and compatibility](#kempston-mouse-and-joystick).
+
+TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
+or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
 On first visit, the bundled **48K ROM** is loaded and saved in IndexedDB.
@@ -101,13 +103,16 @@ character uses Caps+Symbol for two emulated frames, then Symbol+S until released
 brackets, braces, and backslash use the same sequence with their corresponding ZX keys. Mouse and touch keys stay down
 until released, and multiple input sources can hold the same switch.
 Leaving both input areas, hiding the tab, or losing window focus releases
-held keys. Only layout/profile choices are saved, never pressed keys.
+held keys. Layout and input preferences are saved, never pressed keys. Joystick keyboard
+modes return to Cursor on Reset and Cold boot.
 
 Keyboard reads drive D0–D4 on even I/O addresses, with A8–A15 selecting
 active-low rows. Machine FE input wiring grounds D5–D7, so an idle even-port
-read returns `0x1F`; unclaimed odd ports still return `0xFF`. The bus supports disjoint read masks and explicit priority
-inhibition for shared ports. State-changing I/O commit notifications and a
-general device/UI adapter registry remain future work.
+read returns `0x1F`; idle Kempston joystick reads return `0x00`, and unclaimed
+odd ports return `0xFF`. The bus supports disjoint read masks and explicit priority
+inhibition for shared ports. Ordinary CPU I/O reads and writes commit once on
+the qualified nIORQ transition. A general device/UI adapter registry remains
+future work.
 
 Sound supports the FE bit-4 beeper and AY-3-8912 on 128K machines. AY uses
 FFFD register selection/readback and BFFD data writes (including aliases decoded
@@ -150,6 +155,49 @@ Num Lock, operators use Spectrum Symbol Shift chords, and Numpad Enter shares
 the ZX Enter switch. PC Quote maps to SS+7, with Shift selecting SS+P; the Mac
 preset retains its double-quote mapping.
 
+
+## Kempston mouse and joystick
+
+The **Kempston** section is last, below Settings. **Sound** sits directly below
+Keyboard. Both Kempston devices are inaccessible while DOS is active; the disk
+controller retains its ports.
+
+Below the keyboard, choose **Cursor**, **Sinclair I (67890)**,
+**Sinclair II (12345)** or **Kempston**. Cursor preserves normal arrow-key chords
+(Caps Shift + 5/6/7/8 for left/down/up/right) and ordinary typing. Reset and Cold
+boot restore Cursor. The Sinclair modes map left/right/down/up/fire to
+6/7/8/9/0 and 1/2/3/4/5 respectively. Kempston drives port `0x1F`, with active-high
+right/left/down/up/fire bits 0–4 and an idle value of zero.
+
+In Kempston's Joystick group, choose **Space**, **Enter** or **0** as the keyboard
+fire key. **Suppress Spectrum key** defaults to checked; uncheck it to send both
+fire and the key's normal Spectrum input. These settings apply to Sinclair and
+Kempston keyboard modes; Cursor keeps normal typing.
+
+Gamepads are enabled by default. Connect a controller and interact with the page
+if the browser has not exposed it yet. Click the screen or keyboard to play:
+the D-pad or left stick moves and the primary button fires. With one controller,
+its name and **Enable gamepad** appear; with several, a selector lets you choose.
+With none, gamepad controls are hidden. Selecting keyboard Kempston takes
+exclusive ownership of the port. **Use gamepad** returns arrows to Cursor and
+restores the enabled controller; choosing Cursor or either Sinclair mode also
+returns Kempston ownership to the enabled gamepad. Keyboard and gamepad inputs
+are not combined.
+
+Mouse input starts disabled. With **Enable mouse** checked, screen clicks capture
+only after the program has read a mouse port since the last Reset or Cold boot.
+Until then, clicking the screen only gives it keyboard focus. Press **Capture
+mouse** to enable and capture directly at any time. Capture hides the host
+cursor and supplies relative movement; mouse-aware Spectrum programs draw their
+own cursor. Use the browser's standard release gesture, usually **Escape**, to
+release it. Reset, Cold boot, disabling mouse input and leaving the window also
+release capture. **Swap left/right buttons** is saved. Wheel extensions are not
+implemented.
+
+The mouse exposes wrapping X/Y counters at `0xFBDF`/`0xFFDF` and active-low
+buttons at `0xFADF`; unused button bits stay high, so idle buttons read `0xFF`.
+**Program accessed Kempston mouse** is a port-access hint, not proof of mouse
+support, and never captures automatically.
 
 ## Files and flash loading
 
@@ -213,7 +261,8 @@ Load a TRD or SCL from Files to mount it in drive A and show its catalog in TR-D
 `boot.B`, or the sole BASIC file when no boot exists, runs automatically; other
 BASIC files have a Run button. Running a file resets and starts the machine
 automatically. Mounting a disk without a boot candidate leaves execution intact.
-Full-size and shortened 40/80-track single/double-sided TRD images are supported. Images must contain complete 256-byte sectors and fit the geometry
+Full-size and shortened 40/80-track single/double-sided TRD images are supported.
+Images must contain complete 256-byte sectors and fit the geometry
 declared in the system sector. Omitted trailing sectors read as zero; writes
 extend the runtime image as needed without changing the imported original.
 
@@ -235,7 +284,8 @@ pauses if DOS currently owns ROM space. Without it, Ladder implements
 `#3D03` BASIC LOAD/RUN with literal filenames and optional decimal CODE address
 and length (including literal `VAL "25088"` forms), plus a limited `#3D13` API:
 functions 00–06, 08, 0A, 0E, 13, 14, 17, 18 (hexadecimal), and workspace
-initialization at `#3D21`. Unsupported syntax, services, ROM data access and entry through `#3D00`/`#3D2F` pause with
+initialization at `#3D21`. Unsupported syntax, services, ROM data access and
+entry through `#3D00`/`#3D2F` pause with
 “You need to provide TR-DOS ROM” in the main error banner and Machine status;
 the TR-DOS section expands to show recovery actions. Run/Step repeat that
 explanation while blocked. Select a ROM and press Run to retry the pending
@@ -301,7 +351,7 @@ The workflow in `.github/workflows/pages.yml` uses Node 24 and `npm ci`, then
 runs lint, typecheck, tests, and the production build for pull requests and
 pushes to `main`. Deployment follows Explorer's release-tag/manual pattern:
 
-- Push a `ladder-v*` release tag (for example `ladder-v0.4.0`, after updating
+- Push a `ladder-v*` release tag (for example `ladder-v0.5.0`, after updating
   `package.json` and its lockfile) to publish that revision.
 - Alternatively, run **CI and deploy Ladder to GitHub Pages** manually from
   GitHub Actions and select the revision to publish.

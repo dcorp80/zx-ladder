@@ -219,3 +219,26 @@ it("keeps ROM-required stops recoverable and supports disk export/eject through 
     machine.dispose();
   }
 });
+
+it("carries Kempston registers and disabled-mouse access hints through the worker protocol", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const rom = new Uint8Array(16384);
+  // IN A,(1F); LD (9000),A; LD A,FA; IN A,(DF); LD (9001),A; HALT
+  rom.set([
+    0xdb, 0x1f, 0x32, 0, 0x90, 0x3e, 0xfa, 0xdb, 0xdf, 0x32, 1, 0x90, 0x76,
+  ]);
+  const machine = new WorkerMachine({ rom });
+  try {
+    machine.kempstonInput({ action: "joystick", bits: 25 });
+    await machine.stepPixels(500);
+    expect(Array.from(await machine.inspectMemory(0x9000, 2))).toEqual([
+      25, 255,
+    ]);
+    expect(machine.mouseAccessed).toBe(true);
+    machine.setReset(true);
+    await machine.inspectMemory(0, 0);
+    expect(machine.mouseAccessed).toBe(false);
+  } finally {
+    machine.dispose();
+  }
+});

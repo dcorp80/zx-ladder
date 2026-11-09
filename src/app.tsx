@@ -4,6 +4,7 @@ import { keyboardLayout } from "./input/keyboardLayout";
 import { rasterTiming } from "./machine/config";
 import { AppShell } from "./sections/appShell";
 import { FilesSection } from "./sections/files";
+import { KempstonSection } from "./sections/kempston";
 import { KeyboardSection } from "./sections/keyboard";
 import { MachineSection } from "./sections/machine";
 import { SettingsSection } from "./sections/settings";
@@ -66,8 +67,10 @@ export const App: Component = () => {
       () => store.machine()?.keyboard,
       document,
       () => keyboardLayout(store.keyboardLayout()).id,
+      store.kempston,
     );
     onCleanup(detach);
+    onCleanup(store.kempston.attach());
   });
   return (
     <main class="app">
@@ -92,11 +95,12 @@ export const App: Component = () => {
       <div class="section-column">
         <MachineSection />
         <VideoSection />
-        <SoundSection />
         <KeyboardSection />
+        <SoundSection />
         <FilesSection />
         <TrdosSection />
         <SettingsSection />
+        <KempstonSection />
       </div>
       <footer class="app-footer">
         <span>

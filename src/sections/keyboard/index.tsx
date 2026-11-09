@@ -1,6 +1,7 @@
 /** biome-ignore-all lint/a11y/noNoninteractiveTabindex: The keyboard surface intentionally owns physical keyboard input; individual keycaps are not focus targets. */
 
 import { For, onCleanup } from "solid-js";
+import { CURSOR_MODES } from "../../input/kempstonInput";
 import {
   KEYBOARD_LAYOUTS,
   keyboardLayout,
@@ -17,20 +18,39 @@ function KeyboardSurface() {
   const store = useStore();
   const layout = () => keyboardLayout(store.keyboardLayout());
   let surface!: HTMLDivElement;
-  const release = (pointerId: number) =>
+  const release = (pointerId: number) => {
+    store.kempston.release(`pointer:${pointerId}`);
     store.machine()?.keyboard.release(`pointer:${pointerId}`);
-  onCleanup(() => store.machine()?.keyboard.releaseAll());
+  };
+  onCleanup(() => {
+    store.kempston.clearKeys();
+    store.machine()?.keyboard.releaseAll();
+  });
   const held = (
     code: string,
     keys: (typeof MACBOOK_ISO_KEYS)[number]["keys"],
   ) => {
     store.keyboardVersion();
+    const arrowBit = (
+      { ArrowLeft: 2, ArrowRight: 1, ArrowDown: 4, ArrowUp: 8 } as Record<
+        string,
+        number
+      >
+    )[code];
+    if (arrowBit && store.kempston.mode() !== "Cursor")
+      return {
+        pressed: !!(store.kempston.heldBits() & arrowBit),
+        physical: store.kempston.owns(`host:${code}`),
+      };
     const keyboard = store.machine()?.keyboard;
     return {
       pressed:
+        store.kempston.owns(`host:${code}`) ||
         (keyboard?.hasSource(`host:${code}`) ?? false) ||
         keys.every((key) => keyboard?.isPressed(key) ?? false),
-      physical: keyboard?.hasSource(`host:${code}`) ?? false,
+      physical:
+        store.kempston.owns(`host:${code}`) ||
+        (keyboard?.hasSource(`host:${code}`) ?? false),
     };
   };
   return (
@@ -71,9 +91,9 @@ function KeyboardSurface() {
                 width: `${(cap.width / layout().width) * 100}%`,
                 height: `${(cap.height / layout().height) * 100}%`,
               }}
-              aria-label={`${cap.caption}: ${cap.chord}${cap.keyword ? `, ${cap.keyword}` : ""}`}
+              aria-label={`${cap.caption}: ${store.kempston.caption(cap.code) ?? cap.chord}${cap.keyword ? `, ${cap.keyword}` : ""}`}
               aria-pressed={held(cap.code, cap.keys).pressed}
-              title={`${cap.caption} → ${cap.chord}${SHIFT_CODES[cap.code] ? ` · Host Shift: ${SHIFT_CODES[cap.code]}` : ""}${cap.extra ? ` · Extended: ${cap.extra}` : ""}`}
+              title={`${cap.caption} → ${store.kempston.caption(cap.code) ?? cap.chord}${SHIFT_CODES[cap.code] ? ` · Host Shift: ${SHIFT_CODES[cap.code]}` : ""}${cap.extra ? ` · Extended: ${cap.extra}` : ""}`}
               onFocus={() => surface.focus({ preventScroll: true })}
               onPointerDown={(event) => {
                 if (event.button !== 0) return;
@@ -81,6 +101,10 @@ function KeyboardSurface() {
                 event.stopPropagation();
                 surface.focus({ preventScroll: true });
                 event.currentTarget.setPointerCapture(event.pointerId);
+                if (
+                  store.kempston.press(`pointer:${event.pointerId}`, cap.code)
+                )
+                  return;
                 const keyboard = store.machine()?.keyboard;
                 if (keyboard)
                   pressHostKey(
@@ -99,7 +123,9 @@ function KeyboardSurface() {
             >
               <span class="key-extra">{cap.extra}</span>
               <span class="key-main">{cap.label}</span>
-              <span class="key-keyword">{cap.keyword}</span>
+              <span class="key-keyword">
+                {store.kempston.caption(cap.code) ?? cap.keyword}
+              </span>
               <span
                 class="key-symbol"
                 title={
@@ -176,12 +202,36 @@ export function KeyboardSection() {
           <KeyboardSurface />
         </div>
         <CompactKeyboard />
+        <fieldset class="cursor-modes" aria-label="Cursor key mode">
+          <legend>Cursor keys</legend>
+          <For each={CURSOR_MODES}>
+            {(mode) => (
+              <label>
+                <input
+                  type="radio"
+                  name="cursor-mode"
+                  checked={store.kempston.mode() === mode}
+                  onChange={() => store.kempston.setMode(mode)}
+                />
+                <span>
+                  {mode}
+                  {mode === "Sinclair I"
+                    ? " (67890)"
+                    : mode === "Sinclair II"
+                      ? " (12345)"
+                      : ""}
+                </span>
+              </label>
+            )}
+          </For>
+        </fieldset>
+        <p class="machine-note">Reset and Cold restart restore Cursor mode.</p>
       </div>
       <p id="keyboard-help" class="machine-note">
         Click the screen or keyboard to type. Hold keys with mouse, touch, or
-        your keyboard. Space and Return always go to the Spectrum. Ivory keys
-        hold combinations: CS = Caps Shift, SS = Symbol Shift. Layout choices
-        are saved.
+        your keyboard. Cursor mode keeps Space and Return as normal Spectrum
+        keys. Ivory keys hold combinations: CS = Caps Shift, SS = Symbol Shift.
+        Layout choices are saved.
       </p>
     </SectionFrame>
   );

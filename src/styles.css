@@ -793,3 +793,39 @@ h1 {
     overflow-wrap: anywhere;
   }
 }
+
+.kempston-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0 0 1rem;
+  padding: 0.8rem;
+}
+.kempston-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+.cursor-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border: 0;
+  padding: 0.5rem 0;
+  margin: 0.5rem 0;
+}
+.cursor-modes legend {
+  margin-bottom: 0.4rem;
+}
+.cursor-modes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #8886;
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+}
+.cursor-modes label:has(input:checked) {
+  background: var(--accent-soft, #658ac533);
+}

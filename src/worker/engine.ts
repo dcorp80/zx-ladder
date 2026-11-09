@@ -46,6 +46,7 @@ export class WorkerEngine {
     if (!m) throw new Error("Worker machine is not initialized");
     return {
       disk: m.diskState,
+      mouseAccessed: m.mouseAccessed,
       running: this.running,
       frameCount: m.frameCount,
       framePosition: m.framePosition,
@@ -260,6 +261,9 @@ export class WorkerEngine {
           this.visible = c.value;
           if (this.visible && this.running) this.loop?.start();
           else this.loop?.pause();
+          break;
+        case "kempston":
+          m.kempstonInput(c.input);
           break;
         case "keyboard": {
           const k = m.keyboard,

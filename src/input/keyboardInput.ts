@@ -1,4 +1,5 @@
 import type { KeyboardDevice } from "../devices/keyboard";
+import type { KempstonController } from "./kempstonInput";
 import {
   EXTENDED_CODES,
   HOST_KEYS,
@@ -11,11 +12,13 @@ export function attachKeyboardInput(
   getKeyboard: () => KeyboardDevice | undefined,
   doc: Document = document,
   getLayout: () => string = () => "macbook-pro-iso",
+  joystick?: KempstonController,
 ): () => void {
   const win = doc.defaultView;
   const ownsFocus = () =>
     doc.activeElement?.matches('[data-emulator-input="true"]') === true;
   const release = () => {
+    joystick?.clearKeys();
     const keyboard = getKeyboard();
     if (keyboard) {
       keyboard.capsSyncActive = false;
@@ -62,6 +65,10 @@ export function attachKeyboardInput(
       (doc.activeElement as HTMLElement)?.blur();
       return;
     }
+    if (!event.repeat && joystick?.press(`host:${event.code}`, event.code)) {
+      event.preventDefault();
+      return;
+    }
     const key =
       HOST_KEYS[event.code] ||
       EXTENDED_CODES[event.code] ||
@@ -82,6 +89,8 @@ export function attachKeyboardInput(
   };
   const up = (event: KeyboardEvent) => {
     if (capsEvent(event)) return;
+    const routed = joystick?.release(`host:${event.code}`);
+    if (routed && ownsFocus()) event.preventDefault();
     const keyboard = getKeyboard();
     if (!keyboard?.hasSource(`host:${event.code}`)) return;
     keyboard.release(`host:${event.code}`);

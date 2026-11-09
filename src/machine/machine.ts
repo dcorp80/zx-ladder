@@ -8,6 +8,7 @@ import {
 import { AyDevice } from "../devices/ay";
 import { BetaDisk } from "../devices/betaDisk";
 import { BorderDevice, type FeBatch } from "../devices/border";
+import { KempstonDevice, type KempstonInput } from "../devices/kempston";
 import { KeyboardDevice } from "../devices/keyboard";
 import { Mcu } from "../devices/mcu";
 import { BankedMemory } from "../devices/memory";
@@ -114,6 +115,13 @@ export class Machine implements ClockContext {
   private nextAudioFlush = IO_MAX_BATCH_TICKS;
   private readonly screenMemory: Pick<DeviceBus, "readMemory">;
   readonly border: BorderDevice;
+  readonly kempston = new KempstonDevice(() => this.dosEnabled);
+  kempstonInput(input: KempstonInput) {
+    this.kempston.input(input);
+  }
+  get mouseAccessed() {
+    return this.kempston.mouseAccessed;
+  }
   readonly keyboard = new KeyboardDevice();
   readonly portFeInput = new PortFeInputDevice();
   readonly disk = new BetaDisk(() => this.elapsedTicks);
@@ -212,6 +220,7 @@ export class Machine implements ClockContext {
       ...(this.ay ? [this.ay] : []),
       this.border,
       this.keyboard,
+      this.kempston,
       this.portFeInput,
       this.video,
       ...this.extraDevices,
@@ -241,6 +250,7 @@ export class Machine implements ClockContext {
       ...(this.ay ? [this.ay] : []),
       this.border,
       this.keyboard,
+      this.kempston,
       this.portFeInput,
       video,
       ...this.extraDevices,
@@ -335,6 +345,7 @@ export class Machine implements ClockContext {
       this.resetHalfCycles = 6;
       this.mcu.reset();
       this.disk.reset();
+      this.kempston.reset();
       this.memory.dosRom = undefined;
       this.dos.reset();
       this.capsLock.reset();
@@ -420,8 +431,10 @@ export class Machine implements ClockContext {
       // FE takes effect at its next raster sample. AY retains the I/O edge tick.
       this.feWriteDelay = afterBorder ? 1 : 0;
       try {
-        if (b.nRD === 0) b.data = this.bus.readIo(b.addr);
-        else if (b.nWR === 0 && b.data !== undefined)
+        if (b.nRD === 0) {
+          this.kempston.observeRead(b.addr);
+          b.data = this.bus.readIo(b.addr);
+        } else if (b.nWR === 0 && b.data !== undefined)
           this.bus.writeIo(b.addr, b.data);
       } finally {
         this.feWriteDelay = 0;
@@ -502,6 +515,7 @@ export class Machine implements ClockContext {
                 this.disk.dosEnabled = true;
               else if (b.addr >= 0x4000) this.disk.dosEnabled = false;
               if (before !== this.disk.dosEnabled) {
+                this.kempston.input({ action: "buttons", buttons: 0 });
                 this.memory.dosRom = this.disk.dosEnabled
                   ? this.disk.rom
                   : undefined;

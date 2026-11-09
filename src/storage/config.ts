@@ -1,4 +1,5 @@
 import type { AyStereo } from "../audio/mixer";
+import { type KempstonSettings, sanitizeKempston } from "../devices/kempston";
 import { PENTAGON_VIDEO_PRESET, VIDEO_PRESETS } from "../devices/videoPresets";
 import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 
@@ -7,6 +8,7 @@ export const CONFIG_KEY = "zx-ladder:config";
 export const THEME_KEY = "zx-ladder:theme";
 export interface AppConfig {
   version: 1;
+  kempston?: KempstonSettings;
   videoPreset: string;
   turbo: boolean;
   decodeFd: boolean;
@@ -37,6 +39,7 @@ export function sanitizeConfig(value: unknown): AppConfig {
       : {};
   return {
     version: 1,
+    kempston: sanitizeKempston(config.kempston),
     videoPreset:
       VIDEO_PRESETS.find((p) => p.id === config.videoPreset)?.id ??
       PENTAGON_VIDEO_PRESET.id,

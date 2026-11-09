@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.0 — 2026-11-09
+
+### Added
+
+- Kempston joystick and mouse support.
+- Cursor, Sinclair I (67890), Sinclair II (12345) and Kempston keyboard modes.
+  Reset and Cold boot restore Cursor. Choose Space, Enter or 0 for fire, with
+  optional suppression of the normal Spectrum key.
+- Gamepad input enabled by default, with D-pad/left-stick movement and primary
+  button fire. Choose a controller when several are connected; hide gamepad
+  controls when none are connected. Keyboard Kempston takes exclusive ownership;
+  Use gamepad restores Cursor and returns ownership to the selected controller.
+- Explicit mouse enable and capture, Capture the mouse on screen clicks only
+  when mouse input is enabled and the program has read a mouse port since the
+  last Reset or Cold boot. Otherwise, screen clicks only give keyboard focus.
+  Explicit Capture mouse remains available, the browser's standard release
+  gesture, and a saved left/right button swap option.
+- A mouse-port access hint without automatic capture.
+
 ## 0.4.0 — 2026-11-06
 
 ### Added

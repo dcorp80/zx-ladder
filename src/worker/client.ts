@@ -1,5 +1,6 @@
 import type { SoundSettings, StereoSink } from "../audio/mixer";
 import type { DiskState } from "../devices/betaDisk";
+import type { KempstonInput } from "../devices/kempston";
 import { KeyboardDevice, type SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import {
@@ -122,6 +123,10 @@ export class WorkerMachine implements MachineLike {
   readonly counters = createCounters();
   readonly cpu = { regs: { pc: 0 } };
   diskState?: DiskState;
+  mouseAccessed = false;
+  kempstonInput(input: KempstonInput) {
+    this.fire({ type: "kempston", input });
+  }
   readonly tape = { status: "No tape mounted." };
   frameCount = 0;
   framePosition = 0;
@@ -200,6 +205,7 @@ export class WorkerMachine implements MachineLike {
     this.options?.onError?.(error);
   }
   private apply(state: MachineState): void {
+    this.mouseAccessed = state.mouseAccessed ?? false;
     this.diskState = state.disk;
     if (state.disk?.romRequired) this.running = false;
     this.frameCount = state.frameCount;
@@ -225,6 +231,8 @@ export class WorkerMachine implements MachineLike {
       this.pending.delete(message.id);
       if (message.error) waiting?.reject(new Error(message.error));
       else {
+        if (message.state)
+          this.mouseAccessed = message.state.mouseAccessed ?? false;
         if (message.state?.disk) {
           this.diskState = message.state.disk;
           if (this.diskState.romRequired) this.running = false;
@@ -335,6 +343,7 @@ export class WorkerMachine implements MachineLike {
     this.fire({ type: "turbo", value });
   }
   setReset(value: boolean): void {
+    if (value) this.mouseAccessed = false;
     this.epoch++;
     this.fire({ type: "reset", value });
   }

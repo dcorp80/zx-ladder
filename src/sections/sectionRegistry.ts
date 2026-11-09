@@ -1,4 +1,5 @@
 import { filesSection } from "./files";
+import { kempstonSection } from "./kempston";
 import { keyboardSection } from "./keyboard";
 import { machineSection } from "./machine";
 import { settingsSection } from "./settings";
@@ -10,11 +11,12 @@ import { videoSection } from "./video";
 export const DEFAULT_SECTION_ORDER: SectionModule[] = [
   machineSection,
   videoSection,
-  soundSection,
   keyboardSection,
+  soundSection,
   filesSection,
   trdosSection,
   settingsSection,
+  kempstonSection,
 ];
 
 const REGISTRY = new Map(

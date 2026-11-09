@@ -10,6 +10,7 @@ import {
 import type { AyStereo, SoundSettings, StereoSink } from "../audio/mixer";
 import { SoundOutput } from "../audio/output";
 import type { DiskState } from "../devices/betaDisk";
+import type { KempstonInput } from "../devices/kempston";
 import type { KeyboardDevice } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import {
@@ -24,6 +25,7 @@ import {
 } from "../files/library";
 import { sclToTrd } from "../files/scl";
 import { trdBoot } from "../files/trd";
+import { KempstonController } from "../input/kempstonInput";
 import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 import type { RasterTiming } from "../machine/config";
 import { createMachine } from "../machine/machine";
@@ -54,6 +56,8 @@ export const MACHINE_METER_REFRESH_MS = 320;
 
 /** The part of the machine contract the UI needs. */
 export interface MachineLike {
+  readonly mouseAccessed?: boolean;
+  kempstonInput?(input: KempstonInput): void;
   readonly diskState?: DiskState;
   setDosRom?(bytes: Uint8Array | null): void | Promise<void>;
   mountDisk?(
@@ -145,6 +149,8 @@ export interface CreateStoreDeps {
 }
 
 export interface Store {
+  readonly kempston: KempstonController;
+  readonly mouseAccessed: Accessor<boolean>;
   readonly disk: Accessor<DiskState | undefined>;
   readonly dosRom: Accessor<RomRecord | null>;
   readonly dosRomStatus: Accessor<string>;
@@ -265,6 +271,7 @@ export async function createAppStore(
     const [pendingImport, setPendingImport] = createSignal<ImportBatch | null>(
       null,
     );
+    const [mouseAccessed, setMouseAccessed] = createSignal(false);
     const [disk, setDisk] = createSignal<DiskState>();
     const [dosRom, setDosRom] = createSignal<RomRecord | null>(null);
     const [dosRomStatus, setDosRomStatus] = createSignal(
@@ -343,6 +350,9 @@ export async function createAppStore(
     };
     const [screenFocusRequest, setScreenFocusRequest] = createSignal(0);
     const [machine, setMachine] = createSignal<MachineLike | null>(null);
+    const kempston = new KempstonController(machine, config.kempston, () =>
+      persistConfig(),
+    );
     const [rom, setRom] = createSignal<RomRecord | null>(null);
     const [status, setStatus] = createSignal<RuntimeStatus>({
       frames: 0,
@@ -420,6 +430,7 @@ export async function createAppStore(
       try {
         saveConfig({
           version: 1,
+          kempston: kempston.settings(),
           keyboardColor: keyboardColor(),
           soundEnabled: soundEnabled(),
           volume: volume(),
@@ -472,6 +483,7 @@ export async function createAppStore(
     let romRequired = false;
     const refresh = () => {
       const active = machine();
+      setMouseAccessed(active?.mouseAccessed ?? false);
       const replaced = active !== tickMachine;
       if (replaced) {
         tickMachine = active;
@@ -565,6 +577,7 @@ export async function createAppStore(
         next.keyboard.observeHostCapsLock(previousKeyboard.hostCapsLock);
         next.keyboard.capsSyncActive = previousKeyboard.capsSyncActive;
       }
+      kempston.reset();
       previousKeyboard?.releaseAll();
       machine()?.setPcmSink?.();
       machine()?.dispose?.();
@@ -573,6 +586,7 @@ export async function createAppStore(
         audio.consume(samples, frames, rate),
       );
       setMachine(next);
+      kempston.install();
       unsubscribeKeyboard = next.keyboard.subscribe(() =>
         setKeyboardVersion((v) => v + 1),
       );
@@ -651,6 +665,8 @@ export async function createAppStore(
     };
 
     store = {
+      kempston,
+      mouseAccessed,
       disk,
       dosRom,
       dosRomStatus,
@@ -901,6 +917,7 @@ export async function createAppStore(
       keyboardLayout,
       setKeyboardLayout(id: string) {
         if (id !== "auto" && !isKeyboardLayout(id)) return;
+        kempston.clearKeys();
         machine()?.keyboard.releaseAll();
         setKeyboardLayoutSignal(id);
         persistConfig();
@@ -954,7 +971,10 @@ export async function createAppStore(
         }
       },
       setReset(pressed: boolean) {
-        if (pressed) audio.reset();
+        if (pressed) {
+          audio.reset();
+          kempston.reset();
+        }
         machine()?.setReset(pressed);
         refresh();
       },
@@ -1120,6 +1140,7 @@ export async function createAppStore(
         setError(null);
       },
       dispose() {
+        kempston.dispose();
         resolveDiskChange?.("cancel");
         machine()?.keyboard.releaseAll();
         unsubscribeKeyboard?.();

@@ -1,5 +1,6 @@
 import type { SoundSettings } from "../audio/mixer";
 import type { DiskState } from "../devices/betaDisk";
+import type { KempstonInput } from "../devices/kempston";
 import type { SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import type { VideoPreset } from "../devices/videoPresets";
@@ -13,6 +14,7 @@ export type KeyboardCommand =
   | { action: "capsActive"; value: boolean }
   | { action: "capsToggle" };
 export type Command =
+  | { type: "kempston"; input: KempstonInput }
   | { type: "sound"; settings: SoundSettings; sampleRate: number }
   | {
       type: "init";
@@ -61,6 +63,7 @@ export type ToWorker =
       bytes: Uint8Array | Uint8ClampedArray | Float32Array;
     };
 export interface MachineState {
+  mouseAccessed?: boolean;
   disk?: DiskState;
   running?: boolean;
   frameCount: number;
