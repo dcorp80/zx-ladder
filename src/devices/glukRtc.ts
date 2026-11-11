@@ -10,11 +10,15 @@ export class GlukRtc implements Device {
   readonly ready: Promise<void>;
   private address = 0;
   private control = 0;
-  constructor(private readonly now: () => Date = () => new Date()) {
+  constructor(
+    private readonly now: () => Date = () => new Date(),
+    private readonly storage = { loadRtcRam, saveRtcRam },
+  ) {
     this.bytes[10] = 0x20;
     this.bytes[11] = 2;
     this.bytes[13] = 0x80;
-    this.ready = loadRtcRam()
+    this.ready = this.storage
+      .loadRtcRam()
       .then((ram) => {
         if (!Array.isArray(ram)) return;
         for (let a = 14; a < 128; a++)
@@ -85,7 +89,7 @@ export class GlukRtc implements Device {
           if (this.address >= 14) {
             this.dirty.add(this.address);
             void this.ready
-              .then(() => saveRtcRam(this.bytes.slice(14)))
+              .then(() => this.storage.saveRtcRam(this.bytes.slice(14)))
               .catch(() => {});
           }
         }

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.1 — 2026-11-11
+
+### Added
+
+- Gluk RTC through DFF7/BFF7 with EFF7 bit-7 access gating, host local time
+  refreshed on reads, and BCD/binary and 12/24-hour formats.
+- Persist CMOS user RAM (0E–7F) to IndexedDB on writes and restore it on cold
+  start; retain it across Reset. Enable RTC by default with a saved Machine
+  checkbox below Decode paging.
+
+### Fixed
+
+- Keep TR-DOS catalog Run buttons attached during worker updates so clicks
+  complete while emulation is running.
+- Reset before starting a disk BASIC program, including expanded-memory
+  configurations without the 128K Tape Loader menu.
+
 ## 0.5.0 — 2026-11-09
 
 ### Added

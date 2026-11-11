@@ -1,10 +1,9 @@
 import { beforeEach, expect, it, vi } from "vitest";
 
-const storage = vi.hoisted(() => ({
+const storage = {
   loadRtcRam: vi.fn(async () => Array(114).fill(37)),
   saveRtcRam: vi.fn(async (_bytes: number[]) => {}),
-}));
-vi.mock("../storage/rtc", () => storage);
+};
 
 import { DeviceBus } from "../machine/devices";
 import { GlukRtc } from "./glukRtc";
@@ -15,7 +14,7 @@ beforeEach(() => {
 });
 
 it("restores RAM, persists user writes only, and retains RAM across reset", async () => {
-  const rtc = new GlukRtc();
+  const rtc = new GlukRtc(undefined, storage);
   await rtc.ready;
   expect(rtc.bytes[14]).toBe(37);
   expect(rtc.bytes[11]).toBe(2);
@@ -33,7 +32,7 @@ it("restores RAM, persists user writes only, and retains RAM across reset", asyn
   expect(bus.readIo(0xbff7)).toBe(255);
 });
 it("does not overwrite writes made before restoration completes", async () => {
-  const rtc = new GlukRtc();
+  const rtc = new GlukRtc(undefined, storage);
   const bus = new DeviceBus([rtc]);
   bus.writeIo(0xeff7, 128);
   bus.writeIo(0xdff7, 14);

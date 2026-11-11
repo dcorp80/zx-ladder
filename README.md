@@ -5,13 +5,11 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.1** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.0: Kempston mouse, joystick and gamepad input.** Choose keyboard
-joystick modes below the keyboard, or use a connected gamepad. Enable and capture
-the mouse in the bottommost Kempston section.
-[Controls and compatibility](#kempston-mouse-and-joystick).
+**New in 0.5.1: Gluk RTC with persistent CMOS user RAM**, plus reliable
+TR-DOS catalog Run buttons while emulation is running.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
@@ -42,6 +40,15 @@ Video fetches physical screen RAM independently of CPU mappings and CPU address
 interceptors, retaining the existing slot arbitration and captured fetch latches.
 Flash loading supports the bundled 128K Tape Loader menu and the standard 48K
 loader. AY sound is available on 128K machines; tape pulse playback remains unavailable.
+
+
+**Gluk RTC** is enabled by default, with a saved checkbox below Decode paging in
+Machine. Spectrum software selects a register through DFF7h and reads/writes
+data through BFF7h after enabling access with EFF7h bit 7. The 128-byte array
+refreshes host local time before data reads and supports BCD/binary and 12/24-hour
+formats. User RAM at 0Eh–7Fh saves to IndexedDB on writes, survives Reset, and
+restores asynchronously on cold start. Time, alarm and control registers are not
+persisted; alarm interrupts and guest-set clock offsets are not emulated.
 
 
 Video preset, Turbo, Free run, border visibility, and theme are saved in

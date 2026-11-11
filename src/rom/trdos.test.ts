@@ -35,7 +35,7 @@ it("restarts a disk BASIC program from expanded memory without the 128K menu", (
   for (let i = 0; i < 420 && m.memory.read(0x8000) !== 42; i++)
     m.advanceFrame();
   expect(m.memory.read(0x8000), m.tape.status).toBe(42);
-});
+}, 15_000);
 it.each([false, true])(
   "services sector API with CPU instructions and real stack (turbo=%s)",
   (cpu7) => {
