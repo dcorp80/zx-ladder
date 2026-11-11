@@ -199,3 +199,47 @@ it("loads an SCL as writable TRD and downloads TRD without modifying its library
     store.dispose();
   }
 });
+
+it("keeps Run attached across worker-style catalog refreshes during a click", async () => {
+  const store = await createAppStore({
+    backend: new MemoryBackend({
+      initial: {
+        name: "48.rom",
+        bytes: new Uint8Array(readFileSync("public/roms/48.rom")),
+      },
+    }),
+    machineFactory: createMachine,
+    hostLoopFactory: () => makeFakeLoop(),
+  });
+  const mounted = render(() => (
+    <StoreProvider value={store}>
+      <TrdosSection />
+    </StoreProvider>
+  ));
+  try {
+    const machine = store.machine() as Machine;
+    machine.mountDisk(diskFixture(), "a", "a.trd", false);
+    store.refresh();
+    const run = mounted.getByRole("button", { name: "Run" });
+    const called = vi.spyOn(store, "runDisk").mockResolvedValue();
+    fireEvent.mouseDown(run);
+    // Worker messages clone every catalog entry even when nothing changed.
+    const state = structuredClone(machine.diskState);
+    Object.defineProperty(machine, "diskState", {
+      configurable: true,
+      get: () => structuredClone(state),
+    });
+    store.refresh();
+    expect(mounted.getByRole("button", { name: "Run" })).toBe(run);
+    expect(run.isConnected).toBe(true);
+    fireEvent.mouseUp(run);
+    fireEvent.click(run);
+    expect(called).toHaveBeenCalledWith(0);
+    state.catalog[0].name = "changed";
+    store.refresh();
+    expect(mounted.getByText("changed.B")).toBeInTheDocument();
+  } finally {
+    mounted.unmount();
+    store.dispose();
+  }
+});

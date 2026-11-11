@@ -2,7 +2,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  For,
+  Index,
   on,
   Show,
 } from "solid-js";
@@ -119,24 +119,26 @@ export function TrdosSection() {
             </tr>
           </thead>
           <tbody>
-            <For each={store.disk()?.catalog}>
+            <Index each={store.disk()?.catalog}>
               {(file) => (
                 <tr>
                   <td>
-                    {file.name}.{file.ext}
+                    {file().name}.{file().ext}
                   </td>
-                  <td>{file.ext === "B" ? file.parameter : file.length}</td>
                   <td>
-                    <Show when={file.ext === "B"}>
+                    {file().ext === "B" ? file().parameter : file().length}
+                  </td>
+                  <td>
+                    <Show when={file().ext === "B"}>
                       <button
                         class="btn"
                         type="button"
                         disabled={
                           store.filesBusy() ||
-                          (!store.dosRom() && !!file.warning)
+                          (!store.dosRom() && !!file().warning)
                         }
-                        title={!store.dosRom() ? file.warning : undefined}
-                        onClick={() => void store.runDisk(file.index)}
+                        title={!store.dosRom() ? file().warning : undefined}
+                        onClick={() => void store.runDisk(file().index)}
                       >
                         Run
                       </button>
@@ -144,7 +146,7 @@ export function TrdosSection() {
                   </td>
                 </tr>
               )}
-            </For>
+            </Index>
           </tbody>
         </table>
       </Show>

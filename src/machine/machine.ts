@@ -403,10 +403,10 @@ export class Machine implements ClockContext {
     const tape = this.disk.rom
       ? dosLauncher(file.name)
       : basicTape(this.disk.bytes, file);
-    this.loadTape(tape, "disk-start.tap");
+    this.loadTape(tape, "disk-start.tap", true);
     this.dos.prepareBasic = this.disk.rom ? undefined : file;
   }
-  loadTape(bytes: Uint8Array, name: string): void {
+  loadTape(bytes: Uint8Array, name: string, reset = false): void {
     if (!this.tape.canMount)
       throw new Error("This ROM is not supported by the flash tape loader.");
     if (this.tape.supports128Menu && this.mcu.decodeFd)
@@ -415,7 +415,7 @@ export class Machine implements ClockContext {
       );
     // Validate before touching the running machine.
     parseTape(bytes, name, this.memory.expanded);
-    if (!this.memory.expanded || this.tape.supports128Menu) {
+    if (reset || !this.memory.expanded || this.tape.supports128Menu) {
       this.setReset(true);
       this.setReset(false);
     }

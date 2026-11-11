@@ -19,6 +19,23 @@ for (const expanded of [false, true])
       expect(m.memory.read(0x5c53) | (m.memory.read(0x5c54) << 8)).toBe(0x5d3b);
     });
   }
+it("restarts a disk BASIC program from expanded memory without the 128K menu", () => {
+  const rom = new Uint8Array(32768);
+  const basic = new Uint8Array(readFileSync("public/roms/48.rom"));
+  rom.set(basic);
+  rom.set(basic, 16384);
+  const m = createMachine({ rom });
+  // Keep BASIC busy with a program that loops forever.
+  const looping = diskFixture([0xec, 49, 48, 14, 0, 0, 10, 0, 0, 13]);
+  m.mountDisk(looping, "loop", "loop.trd");
+  for (let i = 0; i < 300; i++) m.advanceFrame();
+  m.mountDisk(diskFixture(), "a", "a.trd", false);
+  m.memory.write(0x8000, 0);
+  m.runDisk(0);
+  for (let i = 0; i < 420 && m.memory.read(0x8000) !== 42; i++)
+    m.advanceFrame();
+  expect(m.memory.read(0x8000), m.tape.status).toBe(42);
+});
 it.each([false, true])(
   "services sector API with CPU instructions and real stack (turbo=%s)",
   (cpu7) => {
