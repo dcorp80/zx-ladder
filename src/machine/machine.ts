@@ -8,6 +8,7 @@ import {
 import { AyDevice } from "../devices/ay";
 import { BetaDisk } from "../devices/betaDisk";
 import { BorderDevice, type FeBatch } from "../devices/border";
+import { GlukRtc } from "../devices/glukRtc";
 import { KempstonDevice, type KempstonInput } from "../devices/kempston";
 import { KeyboardDevice } from "../devices/keyboard";
 import { Mcu } from "../devices/mcu";
@@ -38,6 +39,7 @@ export interface MachineOptions {
   rom: Uint8Array;
   cpu7?: boolean;
   decodeFd?: boolean;
+  rtcEnabled?: boolean;
   lateInt?: boolean;
   videoPreset?: VideoPreset;
   devices?: readonly Device[];
@@ -115,6 +117,10 @@ export class Machine implements ClockContext {
   private nextAudioFlush = IO_MAX_BATCH_TICKS;
   private readonly screenMemory: Pick<DeviceBus, "readMemory">;
   readonly border: BorderDevice;
+  readonly rtc = new GlukRtc();
+  setRtcEnabled(enabled: boolean): void {
+    this.rtc.enabled = enabled;
+  }
   readonly kempston = new KempstonDevice(() => this.dosEnabled);
   kempstonInput(input: KempstonInput) {
     this.kempston.input(input);
@@ -202,6 +208,7 @@ export class Machine implements ClockContext {
     this.dos = new TrdosService(this.memory, this.disk);
     this.tape = new Spectrum48Tape(this.memory, this.keyboard);
     this.capsLock = new Spectrum48CapsLock(this.memory, this.keyboard);
+    this.rtc.enabled = options.rtcEnabled ?? true;
     this.mcu = new Mcu(this.memory, options.decodeFd, () => {
       this.tape.romChanged();
       this.capsLock.reset();
@@ -221,6 +228,7 @@ export class Machine implements ClockContext {
       this.border,
       this.keyboard,
       this.kempston,
+      this.rtc,
       this.portFeInput,
       this.video,
       ...this.extraDevices,
@@ -251,6 +259,7 @@ export class Machine implements ClockContext {
       this.border,
       this.keyboard,
       this.kempston,
+      this.rtc,
       this.portFeInput,
       video,
       ...this.extraDevices,
@@ -344,6 +353,7 @@ export class Machine implements ClockContext {
     if (pressed && !this.resetHeld) {
       this.resetHalfCycles = 6;
       this.mcu.reset();
+      this.rtc.reset();
       this.disk.reset();
       this.kempston.reset();
       this.memory.dosRom = undefined;

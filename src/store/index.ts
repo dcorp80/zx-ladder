@@ -94,6 +94,7 @@ export interface MachineLike {
   readonly hasFrame: boolean;
   setLateInt(enabled: boolean): void;
   setDecodeFd?(enabled: boolean): void;
+  setRtcEnabled?(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setReset(pressed: boolean): void;
   setVideoPreset(preset: VideoPreset): void;
@@ -134,6 +135,7 @@ export interface CreateStoreDeps {
     rom: Uint8Array;
     cpu7?: boolean;
     decodeFd?: boolean;
+    rtcEnabled?: boolean;
     lateInt?: boolean;
     videoPreset?: VideoPreset;
   }) => MachineLike;
@@ -199,6 +201,7 @@ export interface Store {
   readonly videoPreset: Accessor<VideoPreset>;
   readonly turbo: Accessor<boolean>;
   readonly decodeFd: Accessor<boolean>;
+  readonly rtcEnabled: Accessor<boolean>;
   readonly freeRun: Accessor<boolean>;
   readonly showBorder: Accessor<boolean>;
   readonly lateInt: Accessor<boolean>;
@@ -213,6 +216,7 @@ export interface Store {
   setVideoPreset(id: string): void;
   setLateInt(enabled: boolean): void;
   setDecodeFd(enabled: boolean): void;
+  setRtcEnabled(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setFreeRun(enabled: boolean): void;
   setReset(pressed: boolean): void;
@@ -377,6 +381,7 @@ export async function createAppStore(
     const [videoPreset, setVideoPresetSignal] =
       createSignal<VideoPreset>(initialVideoPreset);
     const [decodeFd, setDecodeFdSignal] = createSignal(config.decodeFd);
+    const [rtcEnabled, setRtcEnabledSignal] = createSignal(config.rtcEnabled);
     const [turbo, setTurboSignal] = createSignal(config.turbo);
     const [freeRun, setFreeRunSignal] = createSignal(config.freeRun);
     const [lateInt, setLateIntSignal] = createSignal(config.lateInt);
@@ -441,6 +446,7 @@ export async function createAppStore(
           videoPreset: videoPreset().id,
           turbo: turbo(),
           decodeFd: decodeFd(),
+          rtcEnabled: rtcEnabled(),
           freeRun: freeRun(),
           showBorder: showBorder(),
           lateInt: lateInt(),
@@ -559,6 +565,7 @@ export async function createAppStore(
           rom: new Uint8Array(bytes),
           cpu7: turbo(),
           decodeFd: decodeFd(),
+          rtcEnabled: rtcEnabled(),
           lateInt: lateInt(),
           videoPreset: videoPreset(),
         });
@@ -899,9 +906,15 @@ export async function createAppStore(
       videoPreset,
       turbo,
       decodeFd,
+      rtcEnabled,
       setDecodeFd(enabled: boolean) {
         machine()?.setDecodeFd?.(enabled);
         setDecodeFdSignal(enabled);
+        persistConfig();
+      },
+      setRtcEnabled(enabled: boolean) {
+        machine()?.setRtcEnabled?.(enabled);
+        setRtcEnabledSignal(enabled);
         persistConfig();
       },
       freeRun,

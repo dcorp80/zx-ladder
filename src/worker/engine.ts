@@ -183,6 +183,7 @@ export class WorkerEngine {
       this.machine = createMachine({
         rom: c.rom,
         decodeFd: c.decodeFd,
+        rtcEnabled: c.rtcEnabled,
         videoPreset: c.preset,
         cpu7: c.turbo,
         lateInt: c.lateInt,
@@ -237,6 +238,9 @@ export class WorkerEngine {
           break;
         case "decodeFd":
           m.setDecodeFd(c.value);
+          break;
+        case "rtcEnabled":
+          m.setRtcEnabled(c.value);
           break;
         case "turbo":
           m.setTurbo(c.value);

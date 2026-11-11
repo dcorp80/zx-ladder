@@ -12,6 +12,7 @@ export interface AppConfig {
   videoPreset: string;
   turbo: boolean;
   decodeFd: boolean;
+  rtcEnabled: boolean;
   freeRun: boolean;
   showBorder: boolean;
   lateInt: boolean;
@@ -44,6 +45,8 @@ export function sanitizeConfig(value: unknown): AppConfig {
       VIDEO_PRESETS.find((p) => p.id === config.videoPreset)?.id ??
       PENTAGON_VIDEO_PRESET.id,
     decodeFd: typeof config.decodeFd === "boolean" ? config.decodeFd : false,
+    rtcEnabled:
+      typeof config.rtcEnabled === "boolean" ? config.rtcEnabled : true,
     turbo: typeof config.turbo === "boolean" ? config.turbo : false,
     freeRun: typeof config.freeRun === "boolean" ? config.freeRun : false,
     showBorder:

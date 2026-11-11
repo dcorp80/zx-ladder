@@ -94,6 +94,16 @@ export const MachineSection: Component = () => {
           FD also matches FFFD/BFFD sound ports. Use standard 128K for the
           bundled 128K ROM.
         </p>
+        <label class="setting-row setting-check">
+          <input
+            type="checkbox"
+            checked={store.rtcEnabled()}
+            onChange={(event) =>
+              store.setRtcEnabled(event.currentTarget.checked)
+            }
+          />
+          <span>Gluk RTC</span>
+        </label>
         <dl class="machine-status machine-meters" aria-live="polite">
           <div>
             <dt>Frames</dt>

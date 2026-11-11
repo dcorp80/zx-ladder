@@ -20,6 +20,7 @@ export type Command =
       type: "init";
       rom: Uint8Array;
       decodeFd?: boolean;
+      rtcEnabled?: boolean;
       preset: VideoPreset;
       turbo: boolean;
       lateInt: boolean;
@@ -32,6 +33,7 @@ export type Command =
         | "border"
         | "turbo"
         | "decodeFd"
+        | "rtcEnabled"
         | "reset"
         | "lateInt"
         | "freeRun"

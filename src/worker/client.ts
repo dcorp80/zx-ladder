@@ -148,7 +148,7 @@ export class WorkerMachine implements MachineLike {
   constructor(
     options: Pick<
       MachineOptions,
-      "rom" | "cpu7" | "lateInt" | "videoPreset" | "decodeFd"
+      "rom" | "cpu7" | "lateInt" | "videoPreset" | "decodeFd" | "rtcEnabled"
     >,
   ) {
     this.videoPreset = options.videoPreset ?? PENTAGON_VIDEO_PRESET;
@@ -169,6 +169,7 @@ export class WorkerMachine implements MachineLike {
       type: "init",
       rom: options.rom,
       decodeFd: options.decodeFd,
+      rtcEnabled: options.rtcEnabled,
       preset: this.videoPreset,
       turbo: this.cpu7,
       lateInt: options.lateInt ?? false,
@@ -338,6 +339,9 @@ export class WorkerMachine implements MachineLike {
   }
   setDecodeFd(value: boolean): void {
     this.fire({ type: "decodeFd", value });
+  }
+  setRtcEnabled(value: boolean): void {
+    this.fire({ type: "rtcEnabled", value });
   }
   setTurbo(value: boolean): void {
     this.fire({ type: "turbo", value });
