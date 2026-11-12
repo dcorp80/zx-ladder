@@ -95,6 +95,7 @@ export interface MachineLike {
   readonly hasFrame: boolean;
   setLateInt(enabled: boolean): void;
   setDecodeFd?(enabled: boolean): void;
+  setExtendedMode?(enabled: boolean): void;
   setRtcEnabled?(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setReset(pressed: boolean): void;
@@ -222,6 +223,7 @@ export interface Store {
   setTurbo(enabled: boolean): void;
   setFreeRun(enabled: boolean): void;
   setReset(pressed: boolean): void;
+  setExtendedMode(enabled: boolean): void;
   setShowBorder(enabled: boolean): void;
   setTheme(theme: Theme): void;
   importRom(file: File, as128?: boolean): Promise<void>;
@@ -921,6 +923,10 @@ export async function createAppStore(
         persistConfig();
       },
       freeRun,
+      setExtendedMode(enabled: boolean) {
+        machine()?.setExtendedMode?.(enabled);
+        refresh();
+      },
       showBorder,
       lateInt,
       setLateInt(_enabled: boolean) {

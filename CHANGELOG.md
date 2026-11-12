@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.2 — 2026-11-12
+
+### Added
+
+- 384×304 screen mode through EFF7 bit 6, using horizontal/vertical border
+  signals for video addressing and companion physical RAM pages 4/6. Apply
+  the wiring to both Pentagon and Lviv presets, including 48K configurations.
+- A Video checkbox reflecting the live mode bit: checkbox changes and guest
+  port writes update the same state, with the latest change taking effect.
+  Reset clears the bit; video-preset changes preserve it.
+- Disable and uncheck the border-overlay checkbox while extended mode is active,
+  retaining its normal-mode preference.
+
+### Fixed
+
+- Separate raw border signals used for addressing from the combined border
+  output, delayed by four 3.5 MHz ticks across line and frame boundaries.
+
+
 ## 0.5.1 — 2026-11-11
 
 ### Added

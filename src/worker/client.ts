@@ -342,6 +342,9 @@ export class WorkerMachine implements MachineLike {
   setDecodeFd(value: boolean): void {
     this.fire({ type: "decodeFd", value });
   }
+  setExtendedMode(value: boolean): void {
+    this.fire({ type: "extendedMode", value });
+  }
   setRtcEnabled(value: boolean): void {
     this.fire({ type: "rtcEnabled", value });
   }

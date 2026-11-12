@@ -128,3 +128,20 @@ it("fetches the intended Pentagon bytes at both horizontal joins", () => {
     expect(address).toBe(offset);
   }
 });
+
+it("uses the latest checkbox or EFF7 bit change", () => {
+  const m = createMachine({ rom: new Uint8Array(16384) });
+  m.setExtendedMode(true);
+  expect(m.extendedMode).toBe(true);
+  m.bus.writeIo(0xeff7, 0);
+  expect(m.extendedMode).toBe(false);
+  m.bus.writeIo(0xeff7, 64);
+  expect(m.extendedMode).toBe(true);
+  m.setExtendedMode(false);
+  expect(m.extendedMode).toBe(false);
+  m.setExtendedMode(true);
+  m.setVideoPreset(LVIV_VIDEO_PRESET);
+  expect(m.extendedMode).toBe(true);
+  m.setReset(true);
+  expect(m.extendedMode).toBe(false);
+});

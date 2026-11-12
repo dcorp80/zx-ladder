@@ -5,11 +5,11 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.1** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.2** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.1: Gluk RTC with persistent CMOS user RAM**, plus reliable
-TR-DOS catalog Run buttons while emulation is running.
+**New in 0.5.2: 384×304 screen mode**, controlled by EFF7 bit 6 or the
+matching checkbox in Video.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
@@ -50,6 +50,17 @@ formats. User RAM at 0Eh–7Fh saves to IndexedDB on writes, survives Reset, and
 restores asynchronously on cold start. Time, alarm and control registers are not
 persisted; alarm interrupts and guest-set clock offsets are not emulated.
 
+
+**384×304 mode (EFF7 bit 6)** in Video reflects the live mode bit. Clicking
+it changes the bit; subsequent software writes to EFF7 can set or clear it again.
+The latest change wins. Reset and Cold boot clear the mode; changing video
+preset preserves it. The mode is not saved between sessions.
+While active, **Show border over captured symbols** is unchecked and disabled;
+its saved preference returns when the mode is cleared. The full raster canvas
+retains its dimensions. Pentagon uses the extended screen layout; Lviv applies
+the same wiring to its own counters, so software written for Pentagon can look
+irregular there. The bit also operates on 48K machines, where software cannot
+populate the companion RAM page through normal CPU mappings.
 
 Video preset, Turbo, Free run, border visibility, and theme are saved in
 localStorage and restored with the saved ROM. Press Run or Step frame to begin. **System** is the

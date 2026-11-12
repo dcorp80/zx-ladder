@@ -618,6 +618,9 @@ export class Machine implements ClockContext {
   advanceFrame(): void {
     this.advancePixels(this.videoPreset.pixelsPerFrame - this.framePosition);
   }
+  setExtendedMode(value: boolean): void {
+    this.video.extendedMode = value;
+  }
   get extendedMode(): boolean {
     return !!this.video.extendedMode;
   }

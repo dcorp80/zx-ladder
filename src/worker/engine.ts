@@ -240,6 +240,9 @@ export class WorkerEngine {
         case "decodeFd":
           m.setDecodeFd(c.value);
           break;
+        case "extendedMode":
+          m.setExtendedMode(c.value);
+          break;
         case "rtcEnabled":
           m.setRtcEnabled(c.value);
           break;

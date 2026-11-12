@@ -142,6 +142,17 @@ export const VideoSection: Component = () => {
           <label class="setting-row setting-check">
             <input
               type="checkbox"
+              checked={!!store.status().extendedMode}
+              onChange={(event) =>
+                store.setExtendedMode(event.currentTarget.checked)
+              }
+            />
+            <span>384×304 mode (EFF7 bit 6)</span>
+          </label>
+
+          <label class="setting-row setting-check">
+            <input
+              type="checkbox"
               checked={store.lateInt()}
               disabled
               title="Experimental timing disabled pending investigation"

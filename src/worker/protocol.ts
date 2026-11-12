@@ -31,6 +31,7 @@ export type Command =
   | {
       type:
         | "border"
+        | "extendedMode"
         | "turbo"
         | "decodeFd"
         | "rtcEnabled"
