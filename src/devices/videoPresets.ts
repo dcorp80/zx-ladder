@@ -9,6 +9,8 @@ export interface VideoPreset {
   readonly hOrigin: number;
   readonly vOrigin: number;
   readonly vAdvance: number;
+  /** Delay of combined raw H/V border in 3.5 MHz counter ticks. */
+  readonly borderShift: number;
   readonly hBorder: readonly [number, number];
   readonly hBlank: readonly [number, number];
   readonly hSync: readonly [number, number];
@@ -34,7 +36,8 @@ export const PENTAGON_VIDEO_PRESET: VideoPreset = Object.freeze({
   hOrigin: 68,
   vOrigin: 246,
   vAdvance: 64,
-  hBorder: [36, 132] as const,
+  borderShift: 4,
+  hBorder: [32, 128] as const,
   hBlank: [63, 102] as const,
   hSync: [68, 84] as const,
   vPaperEnd: 192,
@@ -59,7 +62,8 @@ export const LVIV_VIDEO_PRESET: VideoPreset = Object.freeze({
   hOrigin: 160,
   vOrigin: 244,
   vAdvance: 160,
-  hBorder: [132, 4] as const,
+  borderShift: 4,
+  hBorder: [128, 0] as const,
   hBlank: [152, 200] as const,
   hSync: [160, 176] as const,
   vPaperEnd: 192,
@@ -93,9 +97,12 @@ export function validateVideoPreset(p: VideoPreset): void {
     p.flashLine,
     p.flashBit,
     p.vPaperEnd,
+    p.borderShift,
   ];
   if (
     ints.some((v) => !Number.isInteger(v)) ||
+    p.borderShift < 0 ||
+    p.borderShift * 2 >= p.pixelsPerFrame ||
     p.width <= 0 ||
     p.height <= 0 ||
     p.width % 8 !== 0 ||

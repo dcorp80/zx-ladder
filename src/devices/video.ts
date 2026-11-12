@@ -163,6 +163,14 @@ export class TimedVideo implements RasterVideo {
         }
       }
     }
+    // Addressing uses raw border signals. Only the combined output signal
+    // passes through the schematic's delay, including vertical transitions.
+    const rawBorder = this.masks.map((mask) => mask & BORDER);
+    const delay = preset.borderShift * 2;
+    for (let c = 0; c < pixelsPerFrame; c++) {
+      const source = (c - delay + pixelsPerFrame) % pixelsPerFrame;
+      this.masks[c] = (this.masks[c] & ~BORDER) | rawBorder[source];
+    }
     this.clock = [
       {
         divider: 1,

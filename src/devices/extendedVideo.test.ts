@@ -65,3 +65,66 @@ it("retains captured border suppression after a later mode change", () => {
     215, 0, 0, 255,
   ]);
 });
+
+it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
+  "delays combined border across line/frame boundaries in $id",
+  (preset) => {
+    const video = new TimedVideo(preset);
+    const raw = (position: number) => {
+      const x = position % preset.width;
+      const y = Math.floor(position / preset.width);
+      const h = video.hPositions[x];
+      const v =
+        (preset.vOrigin +
+          y +
+          (video.advanceX > 0 && x >= video.advanceX ? 1 : 0)) %
+        preset.height;
+      const [a, b] = preset.hBorder;
+      return (
+        (a < b ? h >= a && h < b : h >= a || h < b) || v >= preset.vPaperEnd
+      );
+    };
+    let shiftedVerticalTransitions = 0;
+    for (let c = 0; c < preset.pixelsPerFrame; c++) {
+      const source =
+        (c - preset.borderShift * 2 + preset.pixelsPerFrame) %
+        preset.pixelsPerFrame;
+      expect(!!(video.masks[c] & 1)).toBe(raw(source));
+      if (raw(c) !== raw(source)) shiftedVerticalTransitions++;
+    }
+    expect(shiftedVerticalTransitions).toBeGreaterThan(0);
+    const undelayed = new TimedVideo({ ...preset, borderShift: 0 });
+    for (let c = 0; c < preset.pixelsPerFrame; c++)
+      expect(video.masks[c] & 6).toBe(undelayed.masks[c] & 6);
+  },
+);
+
+it("fetches the intended Pentagon bytes at both horizontal joins", () => {
+  const video = new TimedVideo(PENTAGON_VIDEO_PRESET);
+  video.extendedMode = true;
+  for (const [h, offset] of [
+    [124, 0x001f],
+    [128, 0x2000],
+    [132, 0x2001],
+    [252, 0x201f],
+    [32, 0x0008],
+    [36, 0x0009],
+  ]) {
+    const s = video.vPositions.findIndex(
+      (v, i) => v === 0 && video.hPositions[(i * 8) % 448] === h,
+    );
+    expect(s).toBeGreaterThanOrEqual(0);
+    video.cpuAccess();
+    let address = -1;
+    video.fetch(
+      {
+        readMemory: (a) => {
+          address = a;
+          return 0;
+        },
+      },
+      s,
+    );
+    expect(address).toBe(offset);
+  }
+});
