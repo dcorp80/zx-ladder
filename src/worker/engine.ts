@@ -54,6 +54,7 @@ export class WorkerEngine {
       counters: Array.from(m.counters),
       pc: m.cpu.regs.pc,
       cpu7: m.cpu7,
+      extendedMode: m.extendedMode,
       cpuLoad: m.cpuLoad,
       memoryMapping: m.memoryMapping,
       tape: m.tape.status,

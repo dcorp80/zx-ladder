@@ -75,6 +75,7 @@ export interface MachineState {
   counters: number[];
   pc: number;
   cpu7: boolean;
+  extendedMode?: boolean;
   cpuLoad: number | null;
   memoryMapping: MemoryMapping;
   tape: string;

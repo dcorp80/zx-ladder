@@ -62,6 +62,11 @@ export class BankedMemory implements Device {
   /** Physical video access, independent of CPU mappings and overlays. */
   readonly readScreen = (address: number): number =>
     this.screen[address & 0x3fff];
+  /** Extended video A14 switches the low physical page bit, not CPU paging. */
+  readonly readExtendedScreen = (address: number): number =>
+    (address & 0x4000
+      ? this.ramPages[this.mapping.screenPage ^ 1]
+      : this.screen)[address & 0x3fff];
   read(address: number): number {
     return (
       (address & 0xc000) === 0 && this.dosRom

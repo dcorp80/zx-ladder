@@ -89,6 +89,7 @@ export interface MachineLike {
   readonly frameCount: number;
   readonly framePosition: number;
   readonly cpu7: boolean;
+  readonly extendedMode?: boolean;
   readonly cpuLoad: number | null;
   readonly memoryMapping?: MemoryMapping;
   readonly hasFrame: boolean;
@@ -114,6 +115,7 @@ export interface RuntimeStatus {
   frames: number;
   pc: number;
   ticks: number;
+  extendedMode?: boolean;
   cpuLoad: number | null;
   memoryMapping: MemoryMapping | null;
   framePosition: number;
@@ -536,6 +538,7 @@ export async function createAppStore(
           frames: Math.max(0, Math.floor(active.frameCount)),
           pc: Math.max(0, Math.floor(active.cpu.regs?.pc ?? 0)) & 0xffff,
           ticks: elapsedTicks,
+          extendedMode: active.extendedMode,
           cpuLoad: active.cpuLoad,
           memoryMapping: active.memoryMapping ?? null,
           framePosition: Math.max(0, Math.floor(active.framePosition)),

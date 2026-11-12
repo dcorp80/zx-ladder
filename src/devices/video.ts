@@ -1,6 +1,6 @@
 import type { VideoPreset } from "../devices/videoPresets";
 import { Counter } from "../machine/counters";
-import type { ClockHook, Device, DeviceBus } from "../machine/devices";
+import type { ClockHook, Device, DeviceBus, IoClaim } from "../machine/devices";
 
 export function pixelAddress(v: number, column: number): number {
   return (
@@ -29,6 +29,7 @@ export interface InterruptInterval {
   endExclusive: number;
 }
 export interface CapturePlanes {
+  extended: Uint8Array;
   pixels: Uint8Array;
   attributes: Uint8Array;
   /** Border colour per 7 MHz slot, expanded from FE event spans. */
@@ -38,6 +39,7 @@ export interface CapturePlanes {
   interruptCount: number;
 }
 export interface RasterVideo extends Device {
+  extendedMode?: boolean;
   readonly hPositions: Uint16Array;
   readonly vPositions: Uint16Array;
   readonly advanceX: number;
@@ -70,6 +72,20 @@ export class TimedVideo implements RasterVideo {
   readonly pixelAddresses: Uint16Array;
   readonly attributeAddresses: Uint16Array;
   readonly masks: Uint8Array;
+  extendedMode = false;
+  readonly io: readonly IoClaim[] = [
+    {
+      lowMask: 255,
+      lowValue: 0xf7,
+      highMask: 255,
+      highValue: 0xef,
+      write: (_, value) => {
+        this.extendedMode = !!(value & 64);
+      },
+    },
+  ];
+  private readonly extendedPixels: Uint16Array;
+  private readonly extendedAttributes: Uint16Array;
   pixelFetch = 0;
   attributeFetch = 0;
   nextFetchIsPixel = true;
@@ -90,8 +106,11 @@ export class TimedVideo implements RasterVideo {
     this.vPositions = new Uint16Array(symbols);
     this.pixelAddresses = new Uint16Array(symbols);
     this.attributeAddresses = new Uint16Array(symbols);
+    this.extendedPixels = new Uint16Array(symbols);
+    this.extendedAttributes = new Uint16Array(symbols);
     this.masks = new Uint8Array(pixelsPerFrame);
     const planes = (): CapturePlanes => ({
+      extended: new Uint8Array(symbols),
       pixels: new Uint8Array(symbols),
       attributes: new Uint8Array(symbols),
       border: new Uint8Array(pixelsPerFrame),
@@ -131,6 +150,16 @@ export class TimedVideo implements RasterVideo {
           // Initial 48K address wiring: V8 is not connected to screen RAM.
           this.pixelAddresses[s] = pixelAddress(v, column);
           this.attributeAddresses[s] = attributeAddress(v, column);
+          // A13 follows horizontal paper; A14 selects the vertical-border page.
+          const verticalBorder = v >= preset.vPaperEnd;
+          const high =
+            (inWindow(h, preset.hBorder) ? 0 : 0x2000) |
+            (verticalBorder ? 0x4000 : 0);
+          this.extendedPixels[s] = (this.pixelAddresses[s] & 0x1fff) | high;
+          // The attribute-select circuit gates A11 off in vertical border.
+          this.extendedAttributes[s] =
+            (this.attributeAddresses[s] & (verticalBorder ? 0x17ff : 0x1fff)) |
+            high;
         }
       }
     }
@@ -150,6 +179,7 @@ export class TimedVideo implements RasterVideo {
     return this.front;
   }
   captureSymbol(index: number, flash: number): void {
+    this.back.extended[index] = Number(this.extendedMode);
     this.back.pixels[index] = this.pixelFetch;
     this.back.attributes[index] = captureAttribute(
       this.attributeFetch,
@@ -159,10 +189,16 @@ export class TimedVideo implements RasterVideo {
   }
   fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void {
     if (this.nextFetchIsPixel)
-      this.pixelFetch = bus.readMemory(this.pixelAddresses[symbolIndex]);
+      this.pixelFetch = bus.readMemory(
+        this.extendedMode
+          ? this.extendedPixels[symbolIndex]
+          : this.pixelAddresses[symbolIndex],
+      );
     else
       this.attributeFetch = bus.readMemory(
-        this.attributeAddresses[symbolIndex],
+        this.extendedMode
+          ? this.extendedAttributes[symbolIndex]
+          : this.attributeAddresses[symbolIndex],
       );
     this.nextFetchIsPixel = !this.nextFetchIsPixel;
   }
@@ -215,7 +251,8 @@ export class TimedVideo implements RasterVideo {
         const attr = attributes[s];
         let bit = (pixels[s] >>> (7 - (c & 7))) & 1;
         if (attr & 0x80) bit ^= 1;
-        const useBorder = showBorder && (mask & BORDER) !== 0;
+        const useBorder =
+          showBorder && !this.front.extended[s] && (mask & BORDER) !== 0;
         const color = useBorder
           ? border[c] & 7
           : bit

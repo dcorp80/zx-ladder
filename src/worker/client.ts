@@ -131,6 +131,7 @@ export class WorkerMachine implements MachineLike {
   frameCount = 0;
   framePosition = 0;
   cpu7: boolean;
+  extendedMode = false;
   cpuLoad: number | null = null;
   memoryMapping: MemoryMapping = { ramPage: 0, romPage: 0, screenPage: 5 };
   hasFrame = false;
@@ -214,6 +215,7 @@ export class WorkerMachine implements MachineLike {
     this.counters.set(state.counters);
     this.cpu.regs.pc = state.pc;
     this.cpu7 = state.cpu7;
+    this.extendedMode = !!state.extendedMode;
     this.cpuLoad = state.cpuLoad;
     this.memoryMapping = state.memoryMapping;
     this.tape.status = state.tape;

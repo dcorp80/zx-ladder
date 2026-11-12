@@ -130,7 +130,8 @@ export const VideoSection: Component = () => {
           <label class="setting-row setting-check">
             <input
               type="checkbox"
-              checked={store.showBorder()}
+              checked={!store.status().extendedMode && store.showBorder()}
+              disabled={!!store.status().extendedMode}
               onChange={(event) =>
                 store.setShowBorder(event.currentTarget.checked)
               }

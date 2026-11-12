@@ -204,7 +204,12 @@ export class Machine implements ClockContext {
           label: "128K · no contention",
         }
       : MACHINE_CONFIG;
-    this.screenMemory = { readMemory: this.memory.readScreen };
+    this.screenMemory = {
+      readMemory: (address) =>
+        this.video.extendedMode
+          ? this.memory.readExtendedScreen(address)
+          : this.memory.readScreen(address),
+    };
     this.dos = new TrdosService(this.memory, this.disk);
     this.tape = new Spectrum48Tape(this.memory, this.keyboard);
     this.capsLock = new Spectrum48CapsLock(this.memory, this.keyboard);
@@ -251,6 +256,7 @@ export class Machine implements ClockContext {
   setVideoPreset(preset: VideoPreset): void {
     validateVideoPreset(preset);
     const video = this.videoFactory(preset);
+    video.extendedMode = this.video.extendedMode;
     const bus = new DeviceBus([
       this.memory,
       this.disk,
@@ -354,6 +360,7 @@ export class Machine implements ClockContext {
       this.resetHalfCycles = 6;
       this.mcu.reset();
       this.rtc.reset();
+      this.video.extendedMode = false;
       this.disk.reset();
       this.kempston.reset();
       this.memory.dosRom = undefined;
@@ -477,7 +484,12 @@ export class Machine implements ClockContext {
     // hooks still observe live counters, frame position and CPU pin values.
     const video = this.video;
     const bus = this.bus;
-    const videoMemory = this.memory.expanded ? this.screenMemory : bus;
+    const videoMemory = {
+      readMemory: (address: number) =>
+        video.extendedMode || this.memory.expanded
+          ? this.screenMemory.readMemory(address)
+          : bus.readMemory(address),
+    };
     const counters = this.counters;
     const clocks = this.clocks;
     const { width, pixelsPerFrame } = this.videoPreset;
@@ -605,6 +617,9 @@ export class Machine implements ClockContext {
   }
   advanceFrame(): void {
     this.advancePixels(this.videoPreset.pixelsPerFrame - this.framePosition);
+  }
+  get extendedMode(): boolean {
+    return !!this.video.extendedMode;
   }
   renderFrame(showBorder = true): Uint8ClampedArray {
     return this.video.render(showBorder);
