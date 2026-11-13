@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   LVIV_VIDEO_PRESET,
   PENTAGON_VIDEO_PRESET,
@@ -35,7 +35,26 @@ function harness() {
     );
   return { engine, messages, send, ticks };
 }
-afterEach(() => vi.useRealTimers());
+beforeEach(() => {
+  vi.stubGlobal(
+    "MessageChannel",
+    class {
+      port1 = {
+        onmessage: undefined as undefined | ((event: { data: number }) => void),
+        close() {},
+      };
+      port2 = {
+        postMessage: (data: number) =>
+          setTimeout(() => this.port1.onmessage?.({ data }), 0),
+        close() {},
+      };
+    },
+  );
+});
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 it("matches synchronous execution and raster exactly through transferable buffers", () => {
   const h = harness();
   const direct = createMachine({ rom });

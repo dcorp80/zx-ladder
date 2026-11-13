@@ -398,3 +398,55 @@ it("free-runs beyond the realtime debt cap within 16ms and switches back without
     loop.dispose();
   }
 });
+
+it("computes frames eagerly, waits for accumulated deadlines and resumes immediately when late", () => {
+  let now = 0;
+  let position = 0;
+  let cost = 3;
+  const delays: number[] = [];
+  const scheduler = makeScheduler();
+  const update = vi.fn();
+  const machine: HostLoopMachine = {
+    timing: { pixelHz: 1000, pixelsPerFrame: 20 },
+    get framePosition() {
+      return position;
+    },
+    advancePixels(count) {
+      position = (position + count) % 20;
+      now += cost;
+      return 1;
+    },
+  };
+  const loop = createHostLoop(machine, {
+    framePacing: true,
+    now: () => now,
+    schedule: (callback, delay = 0) => {
+      delays.push(delay);
+      return scheduler.schedule(callback);
+    },
+    cancel: scheduler.cancel,
+    onUpdate: update,
+  });
+  try {
+    loop.start();
+    update.mockClear();
+    scheduler.fireNext();
+    expect(now).toBe(3);
+    expect(update).not.toHaveBeenCalled();
+    expect(delays.at(-1)).toBe(17);
+    now = 20;
+    scheduler.fireNext();
+    expect(update).toHaveBeenCalledTimes(1);
+    scheduler.fireNext();
+    expect(delays.at(-1)).toBe(17);
+    now = 40;
+    scheduler.fireNext();
+    cost = 25;
+    scheduler.fireNext();
+    expect(now).toBe(65);
+    expect(update).toHaveBeenCalledTimes(3);
+    expect(delays.at(-1)).toBe(0);
+  } finally {
+    loop.dispose();
+  }
+});

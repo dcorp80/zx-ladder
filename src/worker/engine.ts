@@ -6,8 +6,6 @@ import type { FromWorker, MachineState, Request, ToWorker } from "./protocol";
 
 const ALL_KEYS = KEY_ROWS.flat();
 export const WORKER_EXECUTION_BUDGET_MS = 4;
-// Scheduling delay is independent of the amount of work allowed per batch.
-const WORKER_NORMAL_DELAY_MS = 4;
 
 /** Owns the complete machine. No DOM, UI store, or browser storage access. */
 export class WorkerEngine {
@@ -89,19 +87,17 @@ export class WorkerEngine {
     this.loop?.dispose();
     if (!this.machine) throw new Error("Worker machine is not initialized");
     this.loop = createHostLoop(this.machine, {
+      framePacing: true,
       freeRun: () => this.freeRun,
       workBudgetMs: WORKER_EXECUTION_BUDGET_MS,
       // Return to the worker task queue between batches so commands can run.
-      schedule: (callback) => {
-        if (!this.freeRun)
+      schedule: (callback, delayMs = 0) => {
+        if (delayMs > 0)
           return {
-            timer: setTimeout(
-              () => callback(performance.now()),
-              WORKER_NORMAL_DELAY_MS,
-            ),
+            timer: setTimeout(() => callback(performance.now()), delayMs),
           };
         // A task, not a microtask: input messages can interleave. Avoid the
-        // nested-timer 4 ms clamp limiting free-run to roughly half a core.
+        // nested-timer clamp while computing an unfinished frame.
         if (!this.taskChannel) {
           this.taskChannel = new MessageChannel();
           this.taskChannel.port1.onmessage = (event) => {
@@ -125,7 +121,9 @@ export class WorkerEngine {
         if (scheduled.token === this.queuedTask?.token)
           this.queuedTask = undefined;
       },
-      onUpdate: () => this.update(),
+      // Paced updates occur only when a frame is due; do not apply the
+      // free-run 20 ms throttle to Lviv's slightly shorter frame period.
+      onUpdate: () => this.update(!this.freeRun),
       onFps: (fps) => {
         this.fps = fps;
       },

@@ -36,10 +36,15 @@ export interface HostLoopMachine {
 
 export type HostFrameHandle = unknown;
 export type HostFrameCallback = (timestamp?: number) => void;
-export type HostSchedule = (callback: HostFrameCallback) => HostFrameHandle;
+export type HostSchedule = (
+  callback: HostFrameCallback,
+  delayMs?: number,
+) => HostFrameHandle;
 export type HostCancel = (handle: HostFrameHandle) => void;
 
 export interface HostLoopOptions {
+  /** Worker mode: compute a frame eagerly, publish at its accumulated deadline. */
+  framePacing?: boolean;
   onUpdate?: () => void;
   /** Completed emulator frames per wall-clock second; null while unsampled. */
   onFps?: (fps: number | null) => void;
@@ -165,6 +170,10 @@ export function createHostLoop(
   let pendingHandle: HostFrameHandle | undefined;
   let pendingToken: number | undefined;
   let nextToken = 0;
+  const frameMs = (pixelsPerFrame * 1000) / pixelHz;
+  let frameDeadline: number | undefined;
+  let frameReady = false;
+  let pacedPosition = machine.framePosition ?? 0;
   let sampledFrames = 0;
   let sampleStart = 0;
 
@@ -241,13 +250,25 @@ export function createHostLoop(
         : workBudgetMs);
     const chunkLimit = freeRun ? FREE_RUN_MAX_CHUNKS : maxChunksPerCallback;
 
-    while ((freeRun || pixelDebt >= 1) && chunks < chunkLimit) {
+    while (
+      (freeRun || (options.framePacing ? !frameReady : pixelDebt >= 1)) &&
+      chunks < chunkLimit
+    ) {
       const chunk = freeRun
         ? HOST_LOOP_MAX_CHUNK_PIXELS
-        : Math.min(HOST_LOOP_MAX_CHUNK_PIXELS, Math.floor(pixelDebt));
+        : options.framePacing
+          ? Math.min(HOST_LOOP_MAX_CHUNK_PIXELS, pixelsPerFrame - pacedPosition)
+          : Math.min(HOST_LOOP_MAX_CHUNK_PIXELS, Math.floor(pixelDebt));
       if (chunk < 1) break;
 
       sampledFrames += machine.advancePixels(chunk);
+      if (!freeRun && options.framePacing) {
+        pacedPosition += chunk;
+        if (pacedPosition === pixelsPerFrame) {
+          pacedPosition = 0;
+          frameReady = true;
+        }
+      }
       if (!freeRun) pixelDebt = Math.max(0, pixelDebt - chunk);
       chunks += 1;
 
@@ -275,6 +296,8 @@ export function createHostLoop(
       freeRun = nextFreeRun;
       pixelDebt = 0;
       previousHostTime = callbackTime;
+      frameDeadline = undefined;
+      frameReady = false;
       resetFps();
     }
     if (previousHostTime === undefined) {
@@ -290,8 +313,28 @@ export function createHostLoop(
       }
     }
 
+    const paced = options.framePacing && !freeRun;
+    if (paced && frameDeadline === undefined) {
+      pacedPosition = machine.framePosition ?? 0;
+      frameDeadline =
+        callbackTime + ((pixelsPerFrame - pacedPosition) * 1000) / pixelHz;
+    }
     try {
       advanceDuePixels();
+      if (
+        paced &&
+        (!frameReady || readTime() < (frameDeadline ?? callbackTime))
+      ) {
+        scheduleNext();
+        return;
+      }
+      if (paced) {
+        frameReady = false;
+        frameDeadline = Math.max(
+          (frameDeadline ?? callbackTime) + frameMs,
+          readTime() - frameMs * maxDebtFrames,
+        );
+      }
       if (sampledFrames >= FPS_SAMPLE_FRAMES) {
         const sampleEnd = readTime();
         const elapsed = sampleEnd - sampleStart;
@@ -319,7 +362,14 @@ export function createHostLoop(
     const token = ++nextToken;
     pendingToken = token;
     try {
-      const handle = schedule((timestamp) => runFrame(token, timestamp));
+      const delay =
+        options.framePacing &&
+        !freeRun &&
+        frameReady &&
+        frameDeadline !== undefined
+          ? Math.max(0, frameDeadline - readTime())
+          : 0;
+      const handle = schedule((timestamp) => runFrame(token, timestamp), delay);
       // A custom scheduler may invoke the callback synchronously.  In that
       // case a later callback has already claimed the pending slot; do not
       // overwrite its handle with the completed synchronous one.
@@ -354,6 +404,8 @@ export function createHostLoop(
       cancelPending();
       previousHostTime = undefined;
       pixelDebt = 0;
+      frameDeadline = undefined;
+      frameReady = false;
       resetFps();
       return;
     }
@@ -373,6 +425,8 @@ export function createHostLoop(
       running = true;
       previousHostTime = readTime();
       pixelDebt = 0;
+      frameDeadline = undefined;
+      frameReady = false;
       resetFps();
 
       if (!notifyUpdate()) return;
@@ -385,6 +439,8 @@ export function createHostLoop(
       cancelPending();
       previousHostTime = undefined;
       pixelDebt = 0;
+      frameDeadline = undefined;
+      frameReady = false;
       resetFps();
       notifyUpdate();
     },
@@ -396,6 +452,8 @@ export function createHostLoop(
       cancelPending();
       previousHostTime = undefined;
       pixelDebt = 0;
+      frameDeadline = undefined;
+      frameReady = false;
       resetFps();
       visibilityTarget?.removeEventListener(
         "visibilitychange",
