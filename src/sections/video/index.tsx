@@ -32,7 +32,6 @@ const VideoCanvas: Component<{
     try {
       context ??= element.getContext("2d");
       if (!context) return;
-      const rgba = active.renderFrame(border);
       // Allocate once per canvas/raster size, never once per frame.
       if (
         !image ||
@@ -40,7 +39,8 @@ const VideoCanvas: Component<{
         image.height !== active.height
       )
         image = context.createImageData(active.width, active.height);
-      image.data.set(rgba);
+      const rgba = active.renderFrame(border, image.data);
+      if (rgba !== image.data) image.data.set(rgba);
       context.putImageData(image, 0, 0);
       paintedMachine = active;
       paintedVersion = version;

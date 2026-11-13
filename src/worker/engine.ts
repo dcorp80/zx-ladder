@@ -1,4 +1,5 @@
 import { PCM_BLOCK_FRAMES } from "../audio/mixer";
+import { captureByteLength, copyCapture } from "../devices/frameRenderer";
 import { KEY_ROWS } from "../devices/keyboard";
 import { createMachine, type Machine } from "../machine/machine";
 import { createHostLoop, type HostLoop } from "../runloop/hostLoop";
@@ -16,6 +17,12 @@ export class WorkerEngine {
   private visible = true;
   private freeRun = false;
   private border = true;
+  private rawFrames = false;
+  private frameBytes(): number {
+    if (!this.machine) throw new Error("Worker machine is not initialized");
+    const slots = this.machine.timing.pixelsPerFrame;
+    return this.rawFrames ? captureByteLength(slots) : slots * 4;
+  }
   private audio = false;
   private fps: number | null = null;
   private lastUpdate = 0;
@@ -75,12 +82,14 @@ export class WorkerEngine {
     ) {
       const bytes = this.frameBuffer;
       this.frameBuffer = undefined;
-      bytes.set(m.renderFrame(this.border));
+      if (this.rawFrames) copyCapture(m.video.completed, bytes);
+      else bytes.set(m.renderFrame(this.border));
       this.lastFrame = m.frameCount;
       this.dirty = false;
-      this.send({ type: "frame", epoch: this.epoch, bytes, state }, [
-        bytes.buffer,
-      ]);
+      this.send(
+        { type: "frame", epoch: this.epoch, bytes, raw: this.rawFrames, state },
+        [bytes.buffer],
+      );
     } else this.send({ type: "state", epoch: this.epoch, state });
   }
   private makeLoop(): void {
@@ -147,7 +156,7 @@ export class WorkerEngine {
         if (message.presented === false) this.dirty = true;
         // One display buffer in flight. A preset change may change its size.
         if (!this.machine) return;
-        const length = this.machine.width * this.machine.height * 4;
+        const length = this.frameBytes();
         this.frameBuffer =
           message.bytes.length === length
             ? (message.bytes as Uint8ClampedArray)
@@ -179,6 +188,7 @@ export class WorkerEngine {
     if (epoch !== this.epoch) this.machine?.flushSound();
     this.epoch = epoch;
     if (c.type === "init") {
+      this.rawFrames = c.rawFrames ?? false;
       this.machine = createMachine({
         rom: c.rom,
         decodeFd: c.decodeFd,
@@ -187,9 +197,7 @@ export class WorkerEngine {
         cpu7: c.turbo,
         lateInt: c.lateInt,
       });
-      this.frameBuffer = new Uint8ClampedArray(
-        this.machine.width * this.machine.height * 4,
-      );
+      this.frameBuffer = new Uint8ClampedArray(this.frameBytes());
       this.machine.setPcmSink((samples, frames, sampleRate) => {
         if (!this.audio || !this.running || !this.visible || this.freeRun)
           return;
@@ -228,7 +236,7 @@ export class WorkerEngine {
           this.dirty = true;
           this.lastFrame = -1;
           if (this.frameBuffer)
-            this.frameBuffer = new Uint8ClampedArray(m.width * m.height * 4);
+            this.frameBuffer = new Uint8ClampedArray(this.frameBytes());
           this.makeLoop();
           break;
         case "border":

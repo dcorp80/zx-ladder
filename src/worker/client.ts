@@ -1,5 +1,11 @@
 import type { SoundSettings, StereoSink } from "../audio/mixer";
 import type { DiskState } from "../devices/betaDisk";
+import {
+  captureByteLength,
+  captureViews,
+  createRasterMasks,
+  renderCapturedFrame,
+} from "../devices/frameRenderer";
 import type { KempstonInput } from "../devices/kempston";
 import { KeyboardDevice, type SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
@@ -115,6 +121,8 @@ export class WorkerMachine implements MachineLike {
   private freeRun = false;
   private border = true;
   private rgba: Uint8ClampedArray;
+  private capture?: Uint8ClampedArray;
+  private masks?: Uint8Array;
   private readonly visibility = () => {
     this.epoch++;
     this.fire({ type: "visible", value: !document.hidden });
@@ -173,6 +181,7 @@ export class WorkerMachine implements MachineLike {
       rtcEnabled: options.rtcEnabled,
       preset: this.videoPreset,
       turbo: this.cpu7,
+      rawFrames: true,
       lateInt: options.lateInt ?? false,
     });
     document.addEventListener("visibilitychange", this.visibility);
@@ -270,11 +279,21 @@ export class WorkerMachine implements MachineLike {
       try {
         if (
           message.epoch !== this.epoch ||
-          message.bytes.length !== this.rgba.length
+          message.bytes.length !==
+            (message.raw
+              ? captureByteLength(this.timing.pixelsPerFrame)
+              : this.rgba.length)
         )
           return;
         presented = true;
-        this.rgba.set(message.bytes);
+        if (message.raw) {
+          if (this.capture?.length !== message.bytes.length)
+            this.capture = new Uint8ClampedArray(message.bytes.length);
+          this.capture.set(message.bytes);
+        } else {
+          this.capture = undefined;
+          this.rgba.set(message.bytes);
+        }
         this.hasFrame = true;
         this.presentationVersion++;
         this.apply(message.state);
@@ -359,6 +378,8 @@ export class WorkerMachine implements MachineLike {
   setVideoPreset(preset: VideoPreset): void {
     this.epoch++;
     this.videoPreset = preset;
+    this.capture = undefined;
+    this.masks = undefined;
     this.hasFrame = false;
     this.cpuLoad = null;
     this.rgba = new Uint8ClampedArray(this.width * this.height * 4);
@@ -421,8 +442,18 @@ export class WorkerMachine implements MachineLike {
       throw new Error("Worker did not return requested memory");
     return result.memory;
   }
-  renderFrame(): Uint8ClampedArray {
-    return this.rgba;
+  renderFrame(showBorder = this.border, target = this.rgba): Uint8ClampedArray {
+    if (this.capture) {
+      this.masks ??= createRasterMasks(this.videoPreset);
+      return renderCapturedFrame(
+        captureViews(this.capture, this.timing.pixelsPerFrame),
+        this.masks,
+        target,
+        showBorder,
+      );
+    }
+    if (target !== this.rgba) target.set(this.rgba);
+    return target;
   }
   dispose(): void {
     if (this.disposed) return;

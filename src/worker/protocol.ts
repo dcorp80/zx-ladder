@@ -23,6 +23,8 @@ export type Command =
       rtcEnabled?: boolean;
       preset: VideoPreset;
       turbo: boolean;
+      /** Transfer completed capture planes for main-thread RGBA expansion. */
+      rawFrames?: boolean;
       lateInt: boolean;
     }
   | { type: "run"; value: boolean }
@@ -90,6 +92,8 @@ export type FromWorker =
       type: "frame";
       epoch: number;
       bytes: Uint8ClampedArray;
+      /** bytes holds packed capture planes when true; otherwise RGBA. */
+      raw?: boolean;
       state: MachineState;
     }
   | {

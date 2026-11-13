@@ -1,6 +1,7 @@
 import type { VideoPreset } from "../devices/videoPresets";
 import { Counter } from "../machine/counters";
 import type { ClockHook, Device, DeviceBus, IoClaim } from "../machine/devices";
+import { createRasterMasks, renderCapturedFrame } from "./frameRenderer";
 
 export function pixelAddress(v: number, column: number): number {
   return (
@@ -55,9 +56,6 @@ export interface RasterVideo extends Device {
   render(showBorder?: boolean): Uint8ClampedArray;
 }
 
-const BORDER = 1,
-  BLANK = 2,
-  SYNC = 4;
 const inWindow = (v: number, range: readonly [number, number]) =>
   range[0] < range[1]
     ? v >= range[0] && v < range[1]
@@ -92,7 +90,7 @@ export class TimedVideo implements RasterVideo {
   hasFrame = false;
   private back: CapturePlanes;
   private front: CapturePlanes;
-  private readonly rgba: Uint8ClampedArray;
+  private rgba?: Uint8ClampedArray;
   private renderDirty = true;
   private interruptActive = false;
   private renderedBorder = true;
@@ -108,7 +106,7 @@ export class TimedVideo implements RasterVideo {
     this.attributeAddresses = new Uint16Array(symbols);
     this.extendedPixels = new Uint16Array(symbols);
     this.extendedAttributes = new Uint16Array(symbols);
-    this.masks = new Uint8Array(pixelsPerFrame);
+    this.masks = createRasterMasks(preset);
     const planes = (): CapturePlanes => ({
       extended: new Uint8Array(symbols),
       pixels: new Uint8Array(symbols),
@@ -122,7 +120,6 @@ export class TimedVideo implements RasterVideo {
     });
     this.back = planes();
     this.front = planes();
-    this.rgba = new Uint8ClampedArray(pixelsPerFrame * 4);
     for (let x = 0; x < width; x++) {
       this.hPositions[x] =
         preset.hReload +
@@ -137,12 +134,6 @@ export class TimedVideo implements RasterVideo {
             (this.advanceX > 0 && x >= this.advanceX ? 1 : 0)) %
           height;
         const c = y * width + x;
-        this.masks[c] =
-          (inWindow(h, preset.hBorder) || v >= preset.vPaperEnd ? BORDER : 0) |
-          (inWindow(h, preset.hBlank) || inWindow(v, preset.vBlank)
-            ? BLANK
-            : 0) |
-          (inWindow(h, preset.hSync) || inWindow(v, preset.vSync) ? SYNC : 0);
         if ((x & 7) === 0) {
           const s = c >>> 3;
           this.vPositions[s] = v;
@@ -162,14 +153,6 @@ export class TimedVideo implements RasterVideo {
             high;
         }
       }
-    }
-    // Addressing uses raw border signals. Only the combined output signal
-    // passes through the schematic's delay, including vertical transitions.
-    const rawBorder = this.masks.map((mask) => mask & BORDER);
-    const delay = preset.borderShift * 2;
-    for (let c = 0; c < pixelsPerFrame; c++) {
-      const source = (c - delay + pixelsPerFrame) % pixelsPerFrame;
-      this.masks[c] = (this.masks[c] & ~BORDER) | rawBorder[source];
     }
     this.clock = [
       {
@@ -243,48 +226,12 @@ export class TimedVideo implements RasterVideo {
     this.renderDirty = true;
   }
   render(showBorder = true): Uint8ClampedArray {
-    if (!this.renderDirty && showBorder === this.renderedBorder)
-      return this.rgba;
-    const { pixels, attributes, border } = this.front;
-    for (let c = 0; c < this.preset.pixelsPerFrame; c++) {
-      const offset = c * 4;
-      const mask = this.masks[c];
-      if (mask & (SYNC | BLANK)) {
-        const shade = mask & SYNC ? 54 : 20;
-        this.rgba[offset] = shade;
-        this.rgba[offset + 1] = shade;
-        this.rgba[offset + 2] = shade;
-      } else {
-        const s = c >>> 3;
-        const attr = attributes[s];
-        let bit = (pixels[s] >>> (7 - (c & 7))) & 1;
-        if (attr & 0x80) bit ^= 1;
-        const useBorder =
-          showBorder && !this.front.extended[s] && (mask & BORDER) !== 0;
-        const color = useBorder
-          ? border[c] & 7
-          : bit
-            ? attr & 7
-            : (attr >>> 3) & 7;
-        const level = !useBorder && attr & 64 ? 255 : 215;
-        this.rgba[offset] = color & 2 ? level : 0;
-        this.rgba[offset + 1] = color & 4 ? level : 0;
-        this.rgba[offset + 2] = color & 1 ? level : 0;
-      }
-      this.rgba[offset + 3] = 255;
-    }
-    // Overlay only captured intervals, including pixels in blanking and sync.
-    for (let i = 0; i < this.front.interruptCount; i++) {
-      const { start, endExclusive } = this.front.interrupts[i];
-      for (let c = start; c < endExclusive; c++) {
-        const offset = c * 4;
-        this.rgba[offset] = 255;
-        this.rgba[offset + 1] = 96;
-        this.rgba[offset + 2] = 0;
-      }
-    }
+    this.rgba ??= new Uint8ClampedArray(this.preset.pixelsPerFrame * 4);
+    const rgba = this.rgba;
+    if (!this.renderDirty && showBorder === this.renderedBorder) return rgba;
+    renderCapturedFrame(this.front, this.masks, rgba, showBorder);
     this.renderDirty = false;
     this.renderedBorder = showBorder;
-    return this.rgba;
+    return rgba;
   }
 }

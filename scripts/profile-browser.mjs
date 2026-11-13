@@ -14,51 +14,59 @@ try {
   const page = await browser.newPage({
     viewport: { width: 1280, height: 1000 },
   });
-  await page.addInitScript(() => {
-    window.measure = {
-      ticks: 0,
-      paints: [],
-      gaps: [],
-      messages: 0,
-      audio: 0,
-      state: null,
-    };
-    const native = Worker;
-    window.Worker = class extends native {
-      profileEpoch = 0;
-      postMessage(message, ...options) {
-        if (typeof message.epoch === "number")
-          this.profileEpoch = message.epoch;
-        return super.postMessage(message, ...options);
+  // Optional transport override for controlled renderer placement comparisons.
+  await page.addInitScript(
+    (rawFrames) => {
+      window.measure = {
+        ticks: 0,
+        paints: [],
+        gaps: [],
+        messages: 0,
+        audio: 0,
+        state: null,
+      };
+      const native = Worker;
+      window.Worker = class extends native {
+        profileEpoch = 0;
+        postMessage(message, ...options) {
+          if (rawFrames !== null && message.command?.type === "init")
+            message.command.rawFrames = rawFrames;
+          if (typeof message.epoch === "number")
+            this.profileEpoch = message.epoch;
+          return super.postMessage(message, ...options);
+        }
+        constructor(...args) {
+          super(...args);
+          window.emuWorker = this;
+          this.addEventListener("message", ({ data }) => {
+            if (data.state) {
+              window.measure.state = data.state;
+              window.measure.ticks += data.state.tickDelta;
+            }
+            if (data.type === "frame") window.measure.messages++;
+            if (data.type === "audio") window.measure.audio++;
+          });
+        }
+      };
+      const put = CanvasRenderingContext2D.prototype.putImageData;
+      CanvasRenderingContext2D.prototype.putImageData = function (...args) {
+        const t = performance.now();
+        const result = put.apply(this, args);
+        window.measure.paints.push(performance.now() - t);
+        return result;
+      };
+      let previous;
+      function frame(t) {
+        if (previous !== undefined) window.measure.gaps.push(t - previous);
+        previous = t;
+        requestAnimationFrame(frame);
       }
-      constructor(...args) {
-        super(...args);
-        window.emuWorker = this;
-        this.addEventListener("message", ({ data }) => {
-          if (data.state) {
-            window.measure.state = data.state;
-            window.measure.ticks += data.state.tickDelta;
-          }
-          if (data.type === "frame") window.measure.messages++;
-          if (data.type === "audio") window.measure.audio++;
-        });
-      }
-    };
-    const put = CanvasRenderingContext2D.prototype.putImageData;
-    CanvasRenderingContext2D.prototype.putImageData = function (...args) {
-      const t = performance.now();
-      const result = put.apply(this, args);
-      window.measure.paints.push(performance.now() - t);
-      return result;
-    };
-    let previous;
-    function frame(t) {
-      if (previous !== undefined) window.measure.gaps.push(t - previous);
-      previous = t;
       requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  });
+    },
+    process.env.PROFILE_RAW_FRAMES === undefined
+      ? null
+      : process.env.PROFILE_RAW_FRAMES === "true",
+  );
   await page.goto(
     process.env.PROFILE_URL || "http://127.0.0.1:4173/zx-ladder/",
   );
@@ -242,6 +250,7 @@ try {
           platform: os.platform(),
           browser: browser.version(),
           headless: true,
+          rawFrames: process.env.PROFILE_RAW_FRAMES ?? "default",
         },
         results,
         inspectLatency: {

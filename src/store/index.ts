@@ -102,7 +102,10 @@ export interface MachineLike {
   setVideoPreset(preset: VideoPreset): void;
   advancePixels(count: number): number;
   advanceFrame(): void;
-  renderFrame(showBorder?: boolean): Uint8ClampedArray;
+  renderFrame(
+    showBorder?: boolean,
+    target?: Uint8ClampedArray,
+  ): Uint8ClampedArray;
 }
 
 export interface HostLoopLike {

@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  captureViews,
+  createRasterMasks,
+  renderCapturedFrame,
+} from "../devices/frameRenderer";
+import {
   LVIV_VIDEO_PRESET,
   PENTAGON_VIDEO_PRESET,
 } from "../devices/videoPresets";
@@ -9,7 +14,7 @@ import type { Command, FromWorker } from "./protocol";
 
 const rom = new Uint8Array(16384);
 rom.set([0x21, 0, 0x80, 0x34, 0x3e, 0x17, 0xd3, 0xfe, 0xc3, 3, 0]);
-function harness() {
+function harness(rawFrames = false) {
   const messages: FromWorker[] = [];
   const engine = new WorkerEngine((message, transfer = []) => {
     messages.push(structuredClone(message, { transfer }));
@@ -26,6 +31,7 @@ function harness() {
     rom,
     preset: PENTAGON_VIDEO_PRESET,
     turbo: false,
+    rawFrames,
     lateInt: false,
   });
   const ticks = () =>
@@ -55,45 +61,58 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
-it("matches synchronous execution and raster exactly through transferable buffers", () => {
-  const h = harness();
-  const direct = createMachine({ rom });
-  try {
-    direct.advanceFrame();
-    const result = h.send({ type: "step" });
-    expect(result.state?.pc).toBe(direct.cpu.regs.pc);
-    expect(h.ticks()).toBe(direct.takeElapsedTicks());
-    const frame = h.messages.find((m) => m.type === "frame") as Extract<
-      FromWorker,
-      { type: "frame" }
-    >;
-    expect(
-      frame.bytes.every(
-        (value, index) => value === direct.renderFrame()[index],
-      ),
-    ).toBe(true);
-    const read = h.send({ type: "inspect", address: 0x8000, length: 4 });
-    expect(read.memory?.[0]).toBe(direct.memory.read(0x8000));
-    h.engine.receive(
-      structuredClone(
-        { recycle: "frame" as const, bytes: frame.bytes, presented: true },
-        { transfer: [frame.bytes.buffer] },
-      ),
-    );
-    expect(frame.bytes.byteLength).toBe(0);
-    direct.advanceFrame();
-    h.send({ type: "step" });
-    const next = h.messages.findLast((m) => m.type === "frame") as Extract<
-      FromWorker,
-      { type: "frame" }
-    >;
-    expect(
-      next.bytes.every((value, index) => value === direct.renderFrame()[index]),
-    ).toBe(true);
-  } finally {
-    h.engine.dispose();
-  }
-});
+it.each([false, true])(
+  "matches synchronous execution and raster through transferable buffers (raw=%s)",
+  (raw) => {
+    const h = harness(raw);
+    const rgba = (bytes: Uint8ClampedArray) =>
+      raw
+        ? renderCapturedFrame(
+            captureViews(bytes, PENTAGON_VIDEO_PRESET.pixelsPerFrame),
+            createRasterMasks(PENTAGON_VIDEO_PRESET),
+            new Uint8ClampedArray(PENTAGON_VIDEO_PRESET.pixelsPerFrame * 4),
+          )
+        : bytes;
+    const direct = createMachine({ rom });
+    try {
+      direct.advanceFrame();
+      const result = h.send({ type: "step" });
+      expect(result.state?.pc).toBe(direct.cpu.regs.pc);
+      expect(h.ticks()).toBe(direct.takeElapsedTicks());
+      const frame = h.messages.find((m) => m.type === "frame") as Extract<
+        FromWorker,
+        { type: "frame" }
+      >;
+      expect(
+        rgba(frame.bytes).every(
+          (value, index) => value === direct.renderFrame()[index],
+        ),
+      ).toBe(true);
+      const read = h.send({ type: "inspect", address: 0x8000, length: 4 });
+      expect(read.memory?.[0]).toBe(direct.memory.read(0x8000));
+      h.engine.receive(
+        structuredClone(
+          { recycle: "frame" as const, bytes: frame.bytes, presented: true },
+          { transfer: [frame.bytes.buffer] },
+        ),
+      );
+      expect(frame.bytes.byteLength).toBe(0);
+      direct.advanceFrame();
+      h.send({ type: "step" });
+      const next = h.messages.findLast((m) => m.type === "frame") as Extract<
+        FromWorker,
+        { type: "frame" }
+      >;
+      expect(
+        rgba(next.bytes).every(
+          (value, index) => value === direct.renderFrame()[index],
+        ),
+      ).toBe(true);
+    } finally {
+      h.engine.dispose();
+    }
+  },
+);
 it("keeps one video packet in flight and returns the latest paused frame after recycling", () => {
   const h = harness();
   try {

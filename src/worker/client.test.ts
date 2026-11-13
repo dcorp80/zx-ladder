@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { LVIV_VIDEO_PRESET } from "../devices/videoPresets";
+import { createMachine } from "../machine/machine";
 import { WorkerMachine } from "./client";
 import { WorkerEngine } from "./engine";
 import type { ToWorker } from "./protocol";
@@ -240,5 +241,33 @@ it("carries Kempston registers and disabled-mouse access hints through the worke
     expect(machine.mouseAccessed).toBe(false);
   } finally {
     machine.dispose();
+  }
+});
+
+it("expands transferred captures directly into presentation storage across border and preset changes", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const rom = new Uint8Array(16384);
+  rom[0] = 0x76;
+  const remote = new WorkerMachine({ rom }),
+    direct = createMachine({ rom });
+  try {
+    for (const preset of [remote.videoPreset, LVIV_VIDEO_PRESET]) {
+      if (preset.id !== remote.videoPreset.id) {
+        remote.setVideoPreset(preset);
+        direct.setVideoPreset(preset);
+      }
+      for (let n = 0; n < 3; n++) {
+        remote.advanceFrame();
+        direct.advanceFrame();
+        await remote.inspectMemory(0, 0);
+        for (const border of [true, false]) {
+          const target = new Uint8ClampedArray(preset.pixelsPerFrame * 4);
+          expect(remote.renderFrame(border, target)).toBe(target);
+          expect(target).toEqual(direct.renderFrame(border));
+        }
+      }
+    }
+  } finally {
+    remote.dispose();
   }
 });

@@ -403,9 +403,11 @@ The notice is also shipped alongside the ROM on the deployed site.
 
 ## Worker execution
 
-Browsers with Web Worker support run CPU, memory, devices, raster capture and
-RGBA rendering in a dedicated module worker. The UI sends ordered commands and
-receives status snapshots and completed frames. Without Worker support, the
+Browsers with Web Worker support run CPU, memory, devices and timed raster
+capture in a dedicated module worker. The UI sends ordered commands and receives
+status snapshots and completed raw captures. The main thread expands captured
+pixels, attributes, border and INT intervals directly into reusable canvas
+ImageData; static raster masks are built once per preset. Without Worker support, the
 synchronous adapter remains available.
 
 Execution yields between bounded 4 ms batches. Free run uses a MessageChannel
