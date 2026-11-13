@@ -15,6 +15,8 @@ const FREE_RUN_MAX_CHUNKS = 65_536;
 export const HOST_LOOP_MAX_CHUNK_PIXELS = 1024;
 export const HOST_LOOP_MAX_DEBT_FRAMES = 4;
 export const FPS_SAMPLE_FRAMES = 16;
+// Sleep coarsely, then use yielding task continuations near the deadline.
+export const FRAME_DEADLINE_EARLY_WAKE_MS = 3;
 
 export interface HostLoopTiming {
   readonly pixelHz: number;
@@ -367,7 +369,10 @@ export function createHostLoop(
         !freeRun &&
         frameReady &&
         frameDeadline !== undefined
-          ? Math.max(0, frameDeadline - readTime())
+          ? Math.max(
+              0,
+              frameDeadline - readTime() - FRAME_DEADLINE_EARLY_WAKE_MS,
+            )
           : 0;
       const handle = schedule((timestamp) => runFrame(token, timestamp), delay);
       // A custom scheduler may invoke the callback synchronously.  In that
