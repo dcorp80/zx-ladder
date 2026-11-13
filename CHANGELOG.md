@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.3 — 2026-11-13
+
+### Improved
+
+- Compute each paced frame promptly, yielding between bounded worker batches,
+  then wait for its accumulated deadline. A two-stage wait reduces presentation
+  jitter and avoids artificial gaps while unfinished frames need CPU time.
+- Expand captured video into reusable ImageData on the main thread, using
+  eight-pixel groups, packed palette writes and precomputed raster spans.
+- Use plain arrays for machine-side video data, retaining timed FE border
+  events, compact INT endpoints and growable extended-mode transition histories.
+  Preserve fetch timing, FLASH and multicolour sampling behavior.
+- Reuse capture views and video-memory readers; cache alternate screen pages
+  instead of constructing status snapshots during extended-screen fetches.
+- Apply running host video configuration changes at frame boundaries while
+  retaining immediate EFF7-controlled fetch addressing.
+
+### Development
+
+- Extend browser profiling with renderer-placement and inlining diagnostics,
+  plus worker execution-region summaries.
+
 ## 0.5.2 — 2026-11-12
 
 ### Added

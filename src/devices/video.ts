@@ -1,6 +1,11 @@
 import type { VideoPreset } from "../devices/videoPresets";
 import { Counter } from "../machine/counters";
 import type { ClockHook, Device, DeviceBus, IoClaim } from "../machine/devices";
+import {
+  type CaptureEvents,
+  createCaptureEvents,
+  expandEvents,
+} from "./captureEvents";
 import { createRasterMasks, renderCapturedFrame } from "./frameRenderer";
 
 export function pixelAddress(v: number, column: number): number {
@@ -29,22 +34,26 @@ export interface InterruptInterval {
   start: number;
   endExclusive: number;
 }
+export type CaptureArray = number[] | Uint8Array;
 export interface CapturePlanes {
-  extended: Uint8Array;
-  pixels: Uint8Array;
-  attributes: Uint8Array;
-  /** Border colour per 7 MHz slot, expanded from FE event spans. */
-  border: Uint8Array;
-  /** Fixed storage: carry-in plus normal/late trigger intervals. */
+  events?: CaptureEvents;
+  /** Dense compatibility/overflow storage; events own the ordinary capture. */
+  extended: CaptureArray;
+  pixels: CaptureArray;
+  attributes: CaptureArray;
+  /** Dense compatibility/overflow border; ordinary frames retain FE events. */
+  border: CaptureArray;
+  /** Custom-preset fallback; ordinary INT endpoints live in events. */
   interrupts: InterruptInterval[];
   interruptCount: number;
 }
 export interface RasterVideo extends Device {
   extendedMode?: boolean;
-  readonly hPositions: Uint16Array;
-  readonly vPositions: Uint16Array;
+  readonly hPositions: number[];
+  readonly vPositions: number[];
   readonly advanceX: number;
   readonly completed: CapturePlanes;
+  readonly rawCompleted?: CapturePlanes;
   readonly hasFrame: boolean;
   fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void;
   cpuAccess(): void;
@@ -64,12 +73,12 @@ const inWindow = (v: number, range: readonly [number, number]) =>
 export class TimedVideo implements RasterVideo {
   readonly id = "video";
   readonly clock: readonly ClockHook[];
-  readonly hPositions: Uint16Array;
-  readonly vPositions: Uint16Array;
+  readonly hPositions: number[];
+  readonly vPositions: number[];
   readonly advanceX: number;
-  readonly pixelAddresses: Uint16Array;
-  readonly attributeAddresses: Uint16Array;
-  readonly masks: Uint8Array;
+  readonly pixelAddresses: number[];
+  readonly attributeAddresses: number[];
+  readonly masks: number[];
   extendedMode = false;
   readonly io: readonly IoClaim[] = [
     {
@@ -82,8 +91,8 @@ export class TimedVideo implements RasterVideo {
       },
     },
   ];
-  private readonly extendedPixels: Uint16Array;
-  private readonly extendedAttributes: Uint16Array;
+  private readonly extendedPixels: number[];
+  private readonly extendedAttributes: number[];
   pixelFetch = 0;
   attributeFetch = 0;
   nextFetchIsPixel = true;
@@ -100,18 +109,19 @@ export class TimedVideo implements RasterVideo {
     const symbols = pixelsPerFrame / 8;
     this.advanceX =
       ((preset.vAdvance - preset.hOrigin + width / 2) % (width / 2)) * 2;
-    this.hPositions = new Uint16Array(width);
-    this.vPositions = new Uint16Array(symbols);
-    this.pixelAddresses = new Uint16Array(symbols);
-    this.attributeAddresses = new Uint16Array(symbols);
-    this.extendedPixels = new Uint16Array(symbols);
-    this.extendedAttributes = new Uint16Array(symbols);
+    this.hPositions = new Array<number>(width).fill(0);
+    this.vPositions = new Array<number>(symbols).fill(0);
+    this.pixelAddresses = new Array<number>(symbols).fill(0);
+    this.attributeAddresses = new Array<number>(symbols).fill(0);
+    this.extendedPixels = new Array<number>(symbols).fill(0);
+    this.extendedAttributes = new Array<number>(symbols).fill(0);
     this.masks = createRasterMasks(preset);
     const planes = (): CapturePlanes => ({
-      extended: new Uint8Array(symbols),
-      pixels: new Uint8Array(symbols),
-      attributes: new Uint8Array(symbols),
-      border: new Uint8Array(pixelsPerFrame),
+      events: createCaptureEvents(pixelsPerFrame),
+      extended: new Array<number>(symbols).fill(0),
+      pixels: new Array<number>(symbols).fill(0),
+      attributes: new Array<number>(symbols).fill(0),
+      border: new Array<number>(pixelsPerFrame).fill(0),
       interrupts: Array.from({ length: 3 }, () => ({
         start: 0,
         endExclusive: 0,
@@ -156,22 +166,38 @@ export class TimedVideo implements RasterVideo {
     }
     this.clock = [
       {
-        divider: 1,
+        divider: 8,
         phase: 0,
         tick: (context) => {
           const c = context.framePosition;
-          if ((c & 7) === 0)
-            this.captureSymbol(c >>> 3, context.counters[Counter.flash]);
+          this.captureSymbol(c >>> 3, context.counters[Counter.flash]);
         },
       },
     ];
   }
+  get rawCompleted(): CapturePlanes {
+    return this.front;
+  }
   get completed(): CapturePlanes {
+    if (this.front.events)
+      expandEvents(this.front.events, this.front.border, this.front.extended);
+    const e = this.front.events;
+    if (e && !e.intComplex) {
+      this.front.interruptCount = e.intStart < 0 ? 0 : 1;
+      this.front.interrupts[0].start = e.intStart;
+      this.front.interrupts[0].endExclusive = e.intEnd;
+    }
     return this.front;
   }
   captureSymbol(index: number, flash: number): void {
-    this.back.extended[index] = Number(this.extendedMode);
-    this.back.pixels[index] = this.pixelFetch;
+    const events = this.back.events;
+    const mode = Number(this.extendedMode);
+    if (events) {
+      if (index === 0) events.initialExtended = mode;
+      const previous = events.initialExtended ^ (events.modeCount & 1);
+      if (mode !== previous) events.modeTimes[events.modeCount++] = index;
+    }
+    this.back.pixels[index] = this.pixelFetch & 255;
     this.back.attributes[index] = captureAttribute(
       this.attributeFetch,
       flash,
@@ -197,13 +223,46 @@ export class TimedVideo implements RasterVideo {
     this.nextFetchIsPixel = true;
   }
   captureBorderSpan(start: number, end: number, latch: number): void {
-    this.back.border.fill(latch & 7, start, end);
+    const e = this.back.events;
+    if (!e || e.feDense) {
+      this.back.border.fill(latch & 7, start, end);
+      return;
+    }
+    if (start === 0) e.initialFe = latch;
+    const previous = e.feCount ? e.feValues[e.feCount - 1] : e.initialFe;
+    if (previous === latch) return;
+    if (e.feCount === e.feTimes.length) {
+      expandEvents(e, this.back.border, this.back.extended);
+      e.feDense = true;
+      this.back.border.fill(latch & 7, start, end);
+    } else {
+      e.feTimes[e.feCount] = start;
+      e.feValues[e.feCount++] = latch;
+    }
   }
   captureBorder(position: number, latch: number): void {
-    this.back.border[position] = latch & 7;
+    this.captureBorderSpan(position, position + 1, latch);
   }
   captureInterrupt(position: number, active: boolean): void {
     this.interruptActive = active;
+    const e = this.back.events;
+    if (e && !e.intComplex) {
+      if (active && e.intStart >= 0) {
+        e.intComplex = true;
+        this.back.interruptCount = 1;
+        this.back.interrupts[0].start = e.intStart;
+        this.back.interrupts[0].endExclusive = e.intEnd;
+      } else {
+        if (active) {
+          e.intStart = position;
+          e.intEnd = e.slots;
+        } else if (e.intStart === position) {
+          e.intStart = -1;
+          e.intEnd = -1;
+        } else e.intEnd = position;
+        return;
+      }
+    }
     if (active) {
       const range = this.back.interrupts[this.back.interruptCount++];
       if (!range) throw new Error("Too many INT intervals in one raster frame");
@@ -220,6 +279,15 @@ export class TimedVideo implements RasterVideo {
     this.front = this.back;
     this.back = old;
     this.back.interruptCount = 0;
+    const events = this.back.events;
+    if (events) {
+      events.intStart = -1;
+      events.intEnd = -1;
+      events.intComplex = false;
+      events.feCount = 0;
+      events.feDense = false;
+      events.modeCount = 0;
+    }
     // A pulse crossing frame zero is clipped into each frame independently.
     if (this.interruptActive) this.captureInterrupt(0, true);
     this.hasFrame = true;

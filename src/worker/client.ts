@@ -98,6 +98,7 @@ class RemoteKeyboard extends KeyboardDevice {
 
 /** UI-side snapshot and command adapter. The CPU and RAM exist only in the worker. */
 export class WorkerMachine implements MachineLike {
+  readonly deferredVideoConfiguration = true;
   private readonly worker: Worker;
   private options?: LoopOptions;
   private disposed = false;
@@ -124,7 +125,7 @@ export class WorkerMachine implements MachineLike {
   private rgba: Uint8ClampedArray;
   private capture?: Uint8ClampedArray;
   private capturedPlanes?: CaptureViews;
-  private masks?: Uint8Array;
+  private masks?: number[];
   private readonly visibility = () => {
     this.epoch++;
     this.fire({ type: "visible", value: !document.hidden });

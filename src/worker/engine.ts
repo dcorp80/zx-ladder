@@ -1,6 +1,7 @@
 import { PCM_BLOCK_FRAMES } from "../audio/mixer";
 import { captureByteLength, copyCapture } from "../devices/frameRenderer";
 import { KEY_ROWS } from "../devices/keyboard";
+import type { VideoPreset } from "../devices/videoPresets";
 import { createMachine, type Machine } from "../machine/machine";
 import { createHostLoop, type HostLoop } from "../runloop/hostLoop";
 import type { FromWorker, MachineState, Request, ToWorker } from "./protocol";
@@ -18,6 +19,31 @@ export class WorkerEngine {
   private freeRun = false;
   private border = true;
   private rawFrames = false;
+  private pendingPreset?: VideoPreset;
+  private pendingLate?: boolean;
+  private pendingExtended?: boolean;
+  private applyVideoChanges(): void {
+    const m = this.machine;
+    if (!m) return;
+    if (this.pendingPreset) {
+      m.setVideoPreset(this.pendingPreset);
+      this.pendingPreset = undefined;
+      this.lastFrame = -1;
+      this.dirty = true;
+      if (this.frameBuffer)
+        this.frameBuffer = new Uint8ClampedArray(this.frameBytes());
+    }
+    if (this.pendingLate !== undefined) {
+      m.setLateInt(this.pendingLate);
+      this.pendingLate = undefined;
+    }
+    if (this.pendingExtended !== undefined) {
+      m.setExtendedMode(this.pendingExtended);
+      this.pendingExtended = undefined;
+    }
+    this.makeLoop();
+  }
+
   private frameBytes(): number {
     if (!this.machine) throw new Error("Worker machine is not initialized");
     const slots = this.machine.timing.pixelsPerFrame;
@@ -82,7 +108,8 @@ export class WorkerEngine {
     ) {
       const bytes = this.frameBuffer;
       this.frameBuffer = undefined;
-      if (this.rawFrames) copyCapture(m.video.completed, bytes);
+      if (this.rawFrames)
+        copyCapture(m.video.rawCompleted ?? m.video.completed, bytes);
       else bytes.set(m.renderFrame(this.border));
       this.lastFrame = m.frameCount;
       this.dirty = false;
@@ -95,7 +122,27 @@ export class WorkerEngine {
   private makeLoop(): void {
     this.loop?.dispose();
     if (!this.machine) throw new Error("Worker machine is not initialized");
-    this.loop = createHostLoop(this.machine, {
+    const m = this.machine;
+    const drive = {
+      timing: m.timing,
+      get framePosition() {
+        return m.framePosition;
+      },
+      advancePixels: (count: number) => {
+        const pending =
+          this.pendingPreset !== undefined ||
+          this.pendingLate !== undefined ||
+          this.pendingExtended !== undefined;
+        const result = m.advancePixels(
+          pending
+            ? Math.min(count, m.timing.pixelsPerFrame - m.framePosition)
+            : count,
+        );
+        if (pending && m.framePosition === 0) this.applyVideoChanges();
+        return result;
+      },
+    };
+    this.loop = createHostLoop(drive, {
       framePacing: true,
       freeRun: () => this.freeRun,
       workBudgetMs: WORKER_EXECUTION_BUDGET_MS,
@@ -188,6 +235,9 @@ export class WorkerEngine {
     if (epoch !== this.epoch) this.machine?.flushSound();
     this.epoch = epoch;
     if (c.type === "init") {
+      this.pendingPreset = undefined;
+      this.pendingLate = undefined;
+      this.pendingExtended = undefined;
       this.rawFrames = c.rawFrames ?? false;
       this.machine = createMachine({
         rom: c.rom,
@@ -224,14 +274,32 @@ export class WorkerEngine {
           this.running = c.value;
           if (c.value && this.visible) this.loop?.start();
           else this.loop?.pause();
+          if (
+            !c.value &&
+            (this.pendingPreset ||
+              this.pendingLate !== undefined ||
+              this.pendingExtended !== undefined)
+          )
+            this.applyVideoChanges();
           break;
         case "step":
           this.running = false;
           this.loop?.pause();
+          if (
+            this.pendingPreset ||
+            this.pendingLate !== undefined ||
+            this.pendingExtended !== undefined
+          )
+            this.applyVideoChanges();
           if (c.pixels === undefined) m.advanceFrame();
           else m.advancePixels(c.pixels);
           break;
         case "video":
+          if (this.running && m.framePosition !== 0) {
+            this.pendingPreset = c.preset;
+            break;
+          }
+          this.pendingPreset = undefined;
           m.setVideoPreset(c.preset);
           this.dirty = true;
           this.lastFrame = -1;
@@ -247,6 +315,11 @@ export class WorkerEngine {
           m.setDecodeFd(c.value);
           break;
         case "extendedMode":
+          if (this.running && m.framePosition !== 0) {
+            this.pendingExtended = c.value;
+            break;
+          }
+          this.pendingExtended = undefined;
           m.setExtendedMode(c.value);
           break;
         case "rtcEnabled":
@@ -259,6 +332,11 @@ export class WorkerEngine {
           m.setReset(c.value);
           break;
         case "lateInt":
+          if (this.running && m.framePosition !== 0) {
+            this.pendingLate = c.value;
+            break;
+          }
+          this.pendingLate = undefined;
           m.setLateInt(c.value);
           break;
         case "freeRun":

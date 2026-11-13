@@ -15,7 +15,7 @@ const BORDER = 1,
 // Frozen pre-extraction scalar renderer: independent output oracle.
 function reference(
   frame: CapturePlanes,
-  masks: Uint8Array,
+  masks: number[] | Uint8Array,
   rgba: Uint8ClampedArray,
   showBorder: boolean,
 ) {
@@ -64,6 +64,7 @@ it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
   (preset) => {
     const video = new TimedVideo(preset),
       frame = video.completed;
+    frame.events = undefined;
     for (let i = 0; i < frame.pixels.length; i++) {
       frame.pixels[i] = (i * 37) & 255;
       frame.attributes[i] = (i * 71) & 255;
@@ -221,5 +222,95 @@ it("refreshes capture metadata in place while retaining all views and interval o
     expect(
       renderCapturedFrame(views, masks, new Uint8ClampedArray(slots * 4)),
     ).toEqual(reference(source, masks, new Uint8ClampedArray(slots * 4), true));
+  }
+});
+
+it("replays FE and mode events identically through transport, including FE overflow and more than 32 mode transitions", () => {
+  for (const overflow of [false, true]) {
+    const video = new TimedVideo(PENTAGON_VIDEO_PRESET);
+    const n = PENTAGON_VIDEO_PRESET.pixelsPerFrame;
+    const stride = overflow ? 1 : 8000;
+    for (let c = 0; c < n; c += stride)
+      video.captureBorderSpan(
+        c,
+        Math.min(n, c + stride),
+        Math.floor(c / stride) & 7,
+      );
+    for (let s = 0; s < n / 8; s++) {
+      video.extendedMode = overflow ? !!(s & 1) : s >= 40 && s < 80;
+      video.pixelFetch = (s * 37) & 255;
+      video.attributeFetch = (s * 71) & 255;
+      video.captureSymbol(s, 17);
+    }
+    video.captureInterrupt(100, true);
+    video.captureInterrupt(137, false);
+    video.finishFrame();
+    const raw = video.rawCompleted,
+      events = raw.events;
+    expect(events?.modeCount).toBe(overflow ? n / 8 - 1 : 2);
+    expect(events?.modeEvents).toBe(true);
+    expect(events?.feDense).toBe(overflow);
+    const bytes = new Uint8ClampedArray(captureByteLength(n));
+    copyCapture(raw, bytes);
+    const decoded = captureViews(bytes, n);
+    const expanded = video.completed;
+    for (const border of [true, false]) {
+      const expected = reference(
+        expanded,
+        video.masks,
+        new Uint8ClampedArray(n * 4),
+        border,
+      );
+      expect(video.render(border)).toEqual(expected);
+      expect(
+        renderCapturedFrame(
+          decoded,
+          video.masks,
+          new Uint8ClampedArray(n * 4),
+          border,
+        ),
+      ).toEqual(expected);
+    }
+  }
+});
+
+it("retains grown mode arrays across frame reuse and ignores stale tail entries", () => {
+  const preset = PENTAGON_VIDEO_PRESET,
+    video = new TimedVideo(preset);
+  const bytes = new Uint8ClampedArray(captureByteLength(preset.pixelsPerFrame));
+  const decoded = captureViews(bytes, preset.pixelsPerFrame);
+  let firstTimes: number[] | undefined;
+  for (const [frameIndex, flips] of [65, 1, 1, 0].entries()) {
+    for (let s = 0; s < preset.pixelsPerFrame / 8; s++) {
+      video.extendedMode = !!(Math.min(s, flips) & 1);
+      video.captureSymbol(s, 0);
+    }
+    video.finishFrame();
+    const raw = video.rawCompleted,
+      events = raw.events;
+    expect(events?.modeCount).toBe(flips);
+    if (frameIndex === 0) firstTimes = events?.modeTimes;
+    if (frameIndex === 2) {
+      expect(events?.modeTimes).toBe(firstTimes);
+      expect(events?.modeTimes.length).toBe(65);
+    }
+    copyCapture(raw, bytes);
+    decoded.refresh();
+    expect(decoded.events?.modeCount).toBe(flips);
+    expect(decoded.events?.modeTimes.length).toBe(65);
+    expect(
+      renderCapturedFrame(
+        decoded,
+        video.masks,
+        new Uint8ClampedArray(preset.pixelsPerFrame * 4),
+      ),
+    ).toEqual(
+      reference(
+        video.completed,
+        video.masks,
+        new Uint8ClampedArray(preset.pixelsPerFrame * 4),
+        true,
+      ),
+    );
   }
 });

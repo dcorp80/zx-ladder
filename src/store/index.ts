@@ -56,6 +56,7 @@ export const MACHINE_METER_REFRESH_MS = 320;
 
 /** The part of the machine contract the UI needs. */
 export interface MachineLike {
+  readonly deferredVideoConfiguration?: boolean;
   readonly mouseAccessed?: boolean;
   kempstonInput?(input: KempstonInput): void;
   readonly diskState?: DiskState;
@@ -1047,6 +1048,15 @@ export async function createAppStore(
         if (!next || next.id === videoPreset().id) return;
         const wasRunning = isRunning();
         const active = machine();
+        if (active?.deferredVideoConfiguration) {
+          active.setVideoPreset(next);
+          setVideoPresetSignal(next);
+          active.setLateInt(next.defaultLateInt);
+          setLateIntSignal(next.defaultLateInt);
+          persistConfig();
+          refresh();
+          return;
+        }
         store.pause();
         try {
           active?.setVideoPreset(next);

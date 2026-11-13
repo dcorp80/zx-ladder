@@ -5,11 +5,13 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.2** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.3** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.2: 384×304 screen mode**, controlled by EFF7 bit 6 or the
-matching checkbox in Video.
+**New in 0.5.3: steadier frame pacing and a lighter capture/render pipeline.**
+Frames compute promptly and wait for their presentation deadline; the main
+thread expands compact captures into the final image. The 384×304 screen mode
+remains available through EFF7 bit 6 or the matching checkbox in Video.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
@@ -81,7 +83,8 @@ override it. The theme cache is applied before the first paint.
   turbo. FPS reports the resulting emulation speed. Turning it off restores
   real-time pacing without a catch-up burst.
 - **Video preset** selects Pentagon or Lviv raster timing on the same machine.
-  Switching starts a fresh raster while preserving CPU, RAM, border, turbo,
+  While running in a worker, switching takes effect at the next frame boundary.
+  The new raster preserves CPU, RAM, border, turbo,
   and accumulated clocks; a running emulator continues running.
 - **Show border** overlays the sampled border latch on captured symbols.
   Turning it off exposes the symbol data captured outside the paper area.
@@ -93,8 +96,12 @@ sync and blanking. Both use the same uncontended 48K machine and 7 MHz
 memory-slot clock. Video presets define raster counters, signal windows,
 INT timing, and FLASH advancement/bit selection independently of that clock.
 The machine captures pixel and attribute latches as execution progresses,
-including the FLASH phase at capture time, and samples border colour per
-pixel. The worker follows elapsed wall time; RAF presents completed frames.
+including the FLASH phase at capture time. Border colour is reconstructed from
+timed FE events. Pixel/attribute latches are captured at the opening of each
+eight-slot group across the full raster, including blanking and border regions.
+Host extended-mode and INT-timing changes apply at the next frame boundary while
+running; guest EFF7 writes affect subsequent memory fetches immediately.
+The worker follows elapsed wall time; RAF presents completed frames.
 The FPS indicator measures completed emulator frames against wall-clock
 time and updates every 16 frames. Pausing or hiding the tab clears the sample
 so inactive time does not lower the next reading.
@@ -406,13 +413,19 @@ The notice is also shipped alongside the ROM on the deployed site.
 Browsers with Web Worker support run CPU, memory, devices and timed raster
 capture in a dedicated module worker. The UI sends ordered commands and receives
 status snapshots and completed raw captures. The main thread expands captured
-pixels, attributes, border and INT intervals directly into reusable canvas
-ImageData; static raster masks are built once per preset. Without Worker support, the
-synchronous adapter remains available.
+pixels, attributes, FE border events, mode transitions and INT endpoints directly
+into reusable canvas ImageData. Packed palette writes and static raster spans
+reduce expansion work. Machine-side video storage uses plain arrays; capture
+views and output buffers are reused. Mode histories grow when needed and retain
+their storage across frames. Without Worker support, the synchronous adapter
+remains available.
 
 Execution yields between bounded 4 ms batches. Free run uses a MessageChannel
-scheduler to yield without nested-timer clamping. Normal mode follows elapsed
-wall time; tab visibility pauses execution without losing run intent. Run,
+scheduler to yield without nested-timer clamping. Normal mode uses the same
+prompt continuations until a frame is complete, then waits for its accumulated
+presentation deadline. A timer wakes 3 ms early, followed by yielding task checks
+until the frame is due. Late frames publish immediately with bounded catch-up.
+Tab visibility pauses execution without losing run intent. Run,
 Pause, frame stepping, reset, turbo, presets, keyboard and tape loading remain
 available. Worker failures stop execution and display an error; Cold boot can
 create a fresh worker.

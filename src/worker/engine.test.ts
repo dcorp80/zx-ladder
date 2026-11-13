@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  captureByteLength,
   captureViews,
   createRasterMasks,
   renderCapturedFrame,
@@ -308,6 +309,31 @@ it("recycles bounded stereo PCM buffers and keeps executing when playback is bac
     vi.advanceTimersByTime(50);
     expect(h.messages.filter((m) => m.type === "audio")).toHaveLength(paused);
     expect(h.messages.some((m) => m.type === "error")).toBe(false);
+  } finally {
+    h.engine.dispose();
+  }
+});
+
+it("defers host video changes to the next frame while running", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+  const h = harness(true);
+  try {
+    h.send({ type: "step", pixels: 100 });
+    h.send({ type: "run", value: true });
+    h.send({ type: "video", preset: LVIV_VIDEO_PRESET });
+    const pending = h.send({ type: "extendedMode", value: true });
+    expect(pending.state?.framePosition).toBe(100);
+    expect(pending.state?.extendedMode).toBe(false);
+    h.send({ type: "lateInt", value: true });
+    vi.advanceTimersByTime(80);
+    const state = h.send({ type: "inspect", address: 0, length: 0 }).state;
+    expect(state?.extendedMode).toBe(true);
+    expect(state?.frameCount).toBeGreaterThan(1);
+    const frame = h.messages.findLast((m) => m.type === "frame");
+    expect(frame?.type === "frame" && frame.bytes.length).toBe(
+      captureByteLength(LVIV_VIDEO_PRESET.pixelsPerFrame),
+    );
+    h.send({ type: "run", value: false });
   } finally {
     h.engine.dispose();
   }

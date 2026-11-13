@@ -12,7 +12,7 @@ export const HOST_LOOP_WORK_BUDGET_MS = 8;
 export const FREE_RUN_WORK_BUDGET_MS = 16;
 // Fail-safe for a frozen host clock; the deadline normally stops far earlier.
 const FREE_RUN_MAX_CHUNKS = 65_536;
-export const HOST_LOOP_MAX_CHUNK_PIXELS = 1024;
+export const HOST_LOOP_MAX_CHUNK_PIXELS = 8192;
 export const HOST_LOOP_MAX_DEBT_FRAMES = 4;
 export const FPS_SAMPLE_FRAMES = 16;
 // Sleep coarsely, then use yielding task continuations near the deadline.
@@ -253,6 +253,8 @@ export function createHostLoop(
     const chunkLimit = freeRun ? FREE_RUN_MAX_CHUNKS : maxChunksPerCallback;
 
     while (
+      running &&
+      !disposed &&
       (freeRun || (options.framePacing ? !frameReady : pixelDebt >= 1)) &&
       chunks < chunkLimit
     ) {

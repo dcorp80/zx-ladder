@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createHostLoop,
+  HOST_LOOP_MAX_CHUNK_PIXELS,
   type HostFrameCallback,
   type HostLoopMachine,
 } from "./hostLoop";
@@ -138,12 +139,12 @@ describe("createHostLoop", () => {
     scheduler.fireNext();
     const firstCallbackChunks = chunks.slice();
     expect(firstCallbackChunks.length).toBe(1);
-    expect(firstCallbackChunks[0]).toBe(1024);
+    expect(firstCallbackChunks[0]).toBe(HOST_LOOP_MAX_CHUNK_PIXELS);
 
     now = 100.1;
     scheduler.fireNext();
     expect(chunks.length).toBe(2);
-    expect(chunks[1]).toBe(1024);
+    expect(chunks[1]).toBe(HOST_LOOP_MAX_CHUNK_PIXELS);
   });
 
   it("resets host baseline on pause and resume", () => {
@@ -355,11 +356,14 @@ it("free-runs beyond the realtime debt cap within 16ms and switches back without
   const onUpdate = vi.fn();
   const loop = createHostLoop(
     {
-      timing: { pixelHz: 1024, pixelsPerFrame: 1024 },
+      timing: {
+        pixelHz: HOST_LOOP_MAX_CHUNK_PIXELS,
+        pixelsPerFrame: HOST_LOOP_MAX_CHUNK_PIXELS,
+      },
       advancePixels(count) {
         chunks.push(count);
         now += 1; // Each chunk costs one host millisecond.
-        return Math.floor(count / 1024);
+        return Math.floor(count / HOST_LOOP_MAX_CHUNK_PIXELS);
       },
     },
     {
@@ -376,7 +380,7 @@ it("free-runs beyond the realtime debt cap within 16ms and switches back without
     onUpdate.mockClear();
     scheduler.fireNext(); // No elapsed wall-clock debt is required.
     expect(chunks).toHaveLength(16);
-    expect(chunks.every((n) => n === 1024)).toBe(true);
+    expect(chunks.every((n) => n === HOST_LOOP_MAX_CHUNK_PIXELS)).toBe(true);
     expect(now).toBe(16);
     expect(onFps).toHaveBeenLastCalledWith(1000);
     expect(onUpdate).toHaveBeenCalledTimes(1);
@@ -388,7 +392,7 @@ it("free-runs beyond the realtime debt cap within 16ms and switches back without
     now += 1000;
     scheduler.fireNext();
     expect(chunks).toHaveLength(17);
-    expect(chunks[16]).toBe(1024);
+    expect(chunks[16]).toBe(HOST_LOOP_MAX_CHUNK_PIXELS);
     freeRun = true;
     scheduler.fireNext();
     expect(chunks).toHaveLength(33);
