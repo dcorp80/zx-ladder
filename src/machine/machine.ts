@@ -176,6 +176,7 @@ export class Machine implements ClockContext {
   private readActive = false;
   private interruptRemaining = 0;
   private readonly extraDevices: readonly Device[];
+  private readonly defaultVideoFactory: boolean;
   private readonly videoFactory: (preset: VideoPreset) => RasterVideo;
   private clocks: {
     divider: number;
@@ -188,6 +189,7 @@ export class Machine implements ClockContext {
     validateVideoPreset(this.videoPreset);
     this.timing = rasterTiming(this.videoPreset);
     this.extraDevices = options.devices ?? [];
+    this.defaultVideoFactory = options.videoFactory === undefined;
     this.videoFactory =
       options.videoFactory ?? ((preset) => new TimedVideo(preset));
     this.turbo = options.cpu7 ?? false;
@@ -494,12 +496,16 @@ export class Machine implements ClockContext {
     const videoMemory = this.videoMemory;
     const counters = this.counters;
     const clocks = this.clocks;
+    // Only the default video supplies this known eight-slot clock.
+    const symbolClock =
+      this.defaultVideoFactory && clocks.length === 1 ? clocks[0] : undefined;
     const { width, pixelsPerFrame } = this.videoPreset;
     const { hPositions, vPositions } = video;
     const interruptPosition = this.interruptPosition;
     const flashPosition = this.flashPosition;
     const requested = count;
     let position = this.framePosition;
+    let symbolClockRemaining = symbolClock?.remaining ?? 0;
     try {
       if (count > 0 && this.coldClock) {
         this.coldClock = false;
@@ -515,12 +521,20 @@ export class Machine implements ClockContext {
         if (position === interruptPosition) this.interruptRemaining = width;
         if (position === flashPosition) counters[Counter.flash]++;
         this.cpu.bus.nINT = this.interruptRemaining > 0 ? 0 : 1;
-        for (const hook of clocks) {
-          if (hook.remaining === 0) {
-            hook.tick(this);
-            hook.remaining = hook.divider;
+        if (symbolClock) {
+          if (symbolClockRemaining === 0) {
+            symbolClock.tick(this);
+            symbolClockRemaining = 8;
           }
-          hook.remaining--;
+          symbolClockRemaining--;
+        } else {
+          for (const hook of clocks) {
+            if (hook.remaining === 0) {
+              hook.tick(this);
+              hook.remaining = hook.divider;
+            }
+            hook.remaining--;
+          }
         }
 
         const b = this.cpu.bus;
@@ -614,6 +628,8 @@ export class Machine implements ClockContext {
       }
       return this.frameCount - framesBefore;
     } finally {
+      // Preserve the countdown even if another phase of the slot throws.
+      if (symbolClock) symbolClock.remaining = symbolClockRemaining;
       this.pendingTicks += requested - count;
     }
   }
