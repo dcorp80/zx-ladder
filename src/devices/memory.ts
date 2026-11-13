@@ -19,6 +19,8 @@ export class BankedMemory implements Device {
   romIndex = 0;
   dosRom?: number[];
   private screen: number[];
+  /** Paired physical page; updated with paging, never resolved via status. */
+  private alternateScreen: number[];
   readonly memory: readonly MemoryClaim[];
   constructor(rom: Uint8Array) {
     validateRom(rom);
@@ -35,6 +37,7 @@ export class BankedMemory implements Device {
       this.ramPages[0],
     ];
     this.screen = this.ramPages[5];
+    this.alternateScreen = this.ramPages[4];
     this.memory = [
       {
         start: 0,
@@ -57,16 +60,16 @@ export class BankedMemory implements Device {
     this.romIndex = (latch >>> 4) & 1;
     this.banks[0] = this.romPages[this.romIndex];
     this.banks[3] = this.ramPages[latch & 7];
-    this.screen = this.ramPages[latch & 8 ? 7 : 5];
+    const screenPage = latch & 8 ? 7 : 5;
+    this.screen = this.ramPages[screenPage];
+    this.alternateScreen = this.ramPages[screenPage ^ 1];
   }
   /** Physical video access, independent of CPU mappings and overlays. */
   readonly readScreen = (address: number): number =>
     this.screen[address & 0x3fff];
   /** Extended video A14 switches the low physical page bit, not CPU paging. */
   readonly readExtendedScreen = (address: number): number =>
-    (address & 0x4000
-      ? this.ramPages[this.mapping.screenPage ^ 1]
-      : this.screen)[address & 0x3fff];
+    (address & 0x4000 ? this.alternateScreen : this.screen)[address & 0x3fff];
   read(address: number): number {
     return (
       (address & 0xc000) === 0 && this.dosRom

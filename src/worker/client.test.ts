@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import * as frameRenderer from "../devices/frameRenderer";
 import { LVIV_VIDEO_PRESET } from "../devices/videoPresets";
 import { createMachine } from "../machine/machine";
 import { WorkerMachine } from "./client";
@@ -269,5 +270,30 @@ it("expands transferred captures directly into presentation storage across borde
     }
   } finally {
     remote.dispose();
+  }
+});
+
+it("creates capture views once per buffer size and reuses them across frames and repaints", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const createViews = vi.spyOn(frameRenderer, "captureViews");
+  const machine = new WorkerMachine({ rom: new Uint8Array(16384).fill(0x76) });
+  try {
+    for (let i = 0; i < 3; i++) {
+      machine.advanceFrame();
+      await machine.inspectMemory(0, 0);
+      machine.renderFrame(true);
+      machine.renderFrame(false);
+    }
+    expect(createViews).toHaveBeenCalledTimes(1);
+    machine.setVideoPreset(LVIV_VIDEO_PRESET);
+    for (let i = 0; i < 2; i++) {
+      machine.advanceFrame();
+      await machine.inspectMemory(0, 0);
+      machine.renderFrame();
+    }
+    expect(createViews).toHaveBeenCalledTimes(2);
+  } finally {
+    machine.dispose();
+    createViews.mockRestore();
   }
 });

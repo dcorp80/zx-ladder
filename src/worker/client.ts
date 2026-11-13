@@ -1,6 +1,7 @@
 import type { SoundSettings, StereoSink } from "../audio/mixer";
 import type { DiskState } from "../devices/betaDisk";
 import {
+  type CaptureViews,
   captureByteLength,
   captureViews,
   createRasterMasks,
@@ -122,6 +123,7 @@ export class WorkerMachine implements MachineLike {
   private border = true;
   private rgba: Uint8ClampedArray;
   private capture?: Uint8ClampedArray;
+  private capturedPlanes?: CaptureViews;
   private masks?: Uint8Array;
   private readonly visibility = () => {
     this.epoch++;
@@ -287,11 +289,18 @@ export class WorkerMachine implements MachineLike {
           return;
         presented = true;
         if (message.raw) {
-          if (this.capture?.length !== message.bytes.length)
+          if (this.capture?.length !== message.bytes.length) {
             this.capture = new Uint8ClampedArray(message.bytes.length);
+            this.capturedPlanes = captureViews(
+              this.capture,
+              this.timing.pixelsPerFrame,
+            );
+          }
           this.capture.set(message.bytes);
+          this.capturedPlanes?.refresh();
         } else {
           this.capture = undefined;
+          this.capturedPlanes = undefined;
           this.rgba.set(message.bytes);
         }
         this.hasFrame = true;
@@ -379,6 +388,7 @@ export class WorkerMachine implements MachineLike {
     this.epoch++;
     this.videoPreset = preset;
     this.capture = undefined;
+    this.capturedPlanes = undefined;
     this.masks = undefined;
     this.hasFrame = false;
     this.cpuLoad = null;
@@ -443,10 +453,10 @@ export class WorkerMachine implements MachineLike {
     return result.memory;
   }
   renderFrame(showBorder = this.border, target = this.rgba): Uint8ClampedArray {
-    if (this.capture) {
+    if (this.capturedPlanes) {
       this.masks ??= createRasterMasks(this.videoPreset);
       return renderCapturedFrame(
-        captureViews(this.capture, this.timing.pixelsPerFrame),
+        this.capturedPlanes,
         this.masks,
         target,
         showBorder,

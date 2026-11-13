@@ -101,3 +101,125 @@ it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
     expect(decoded.pixels[0]).toBe(before);
   },
 );
+
+it("matches every pixel/attribute combination with slot-varying border and masks", () => {
+  const symbols = 256 * 256,
+    slots = symbols * 8;
+  const frame: CapturePlanes = {
+    pixels: new Uint8Array(symbols),
+    attributes: new Uint8Array(symbols),
+    extended: new Uint8Array(symbols),
+    border: new Uint8Array(slots),
+    interrupts: [],
+    interruptCount: 0,
+  };
+  const masks = new Uint8Array(slots);
+  for (let s = 0; s < symbols; s++) {
+    frame.pixels[s] = s & 255;
+    frame.attributes[s] = s >>> 8;
+    frame.extended[s] = s & 1;
+  }
+  for (let c = 0; c < slots; c++) {
+    masks[c] = (c + (c >>> 3)) & 7;
+    frame.border[c] = (c * 3) & 7;
+  }
+  for (const border of [true, false]) {
+    expect(
+      renderCapturedFrame(
+        frame,
+        masks,
+        new Uint8ClampedArray(slots * 4),
+        border,
+      ),
+    ).toEqual(
+      reference(frame, masks, new Uint8ClampedArray(slots * 4), border),
+    );
+  }
+});
+
+it("preserves partial-symbol spans and unaligned target views without touching surrounding bytes", () => {
+  const masks = Uint8Array.from([
+    0, 1, 2, 4, 6, 0, 1, 0, 4, 4, 2, 1, 0, 1, 0, 0, 1, 2, 0,
+  ]);
+  const frame: CapturePlanes = {
+    pixels: Uint8Array.from([0xa5, 0x3c, 0xff]),
+    attributes: Uint8Array.from([0xc7, 0x2a, 0x76]),
+    extended: Uint8Array.from([0, 1, 0]),
+    border: Uint8Array.from(masks, (_, i) => i & 7),
+    interrupts: [{ start: 3, endExclusive: 11 }],
+    interruptCount: 1,
+  };
+  for (const offset of [0, 1, 4]) {
+    for (const border of [true, false]) {
+      const backing = new Uint8ClampedArray(masks.length * 4 + offset + 5).fill(
+        123,
+      );
+      const target = backing.subarray(offset, offset + masks.length * 4);
+      expect(renderCapturedFrame(frame, masks, target, border)).toBe(target);
+      expect(target).toEqual(
+        reference(frame, masks, new Uint8ClampedArray(target.length), border),
+      );
+      expect(Array.from(backing.subarray(0, offset))).toEqual(
+        Array(offset).fill(123),
+      );
+      expect(Array.from(backing.subarray(offset + target.length))).toEqual(
+        Array(5).fill(123),
+      );
+    }
+  }
+});
+
+it("refreshes capture metadata in place while retaining all views and interval objects", () => {
+  const slots = 16,
+    length = captureByteLength(slots);
+  const bytes = new Uint8ClampedArray(length + 5).subarray(3, 3 + length);
+  const source: CapturePlanes = {
+    pixels: Uint8Array.from([0xa5, 0x3c]),
+    attributes: Uint8Array.from([0xc7, 0x2a]),
+    extended: Uint8Array.from([0, 1]),
+    border: new Uint8Array(slots).fill(3),
+    interruptCount: 1,
+    interrupts: [
+      { start: 2, endExclusive: 5 },
+      { start: 0, endExclusive: 0 },
+      { start: 0, endExclusive: 0 },
+    ],
+  };
+  copyCapture(source, bytes);
+  const views = captureViews(bytes, slots);
+  const pixels = views.pixels,
+    attributes = views.attributes,
+    extended = views.extended,
+    border = views.border;
+  const intervals = views.interrupts,
+    first = intervals[0],
+    second = intervals[1],
+    third = intervals[2];
+  for (const count of [3, 0, 1]) {
+    source.pixels[0] ^= 255;
+    source.attributes[1] ^= 0xc0;
+    source.extended[0] ^= 1;
+    source.border.fill(count);
+    source.interruptCount = count;
+    for (let i = 0; i < 3; i++) {
+      source.interrupts[i].start = i + count;
+      source.interrupts[i].endExclusive = i + count + 3;
+    }
+    copyCapture(source, bytes);
+    views.refresh();
+    expect(views.pixels).toBe(pixels);
+    expect(views.attributes).toBe(attributes);
+    expect(views.extended).toBe(extended);
+    expect(views.border).toBe(border);
+    expect(views.interrupts).toBe(intervals);
+    expect(intervals[0]).toBe(first);
+    expect(intervals[1]).toBe(second);
+    expect(intervals[2]).toBe(third);
+    expect(views.interruptCount).toBe(count);
+    expect(views.interrupts).toEqual(source.interrupts);
+    const masks = new Uint8Array(slots);
+    expect(
+      renderCapturedFrame(views, masks, new Uint8ClampedArray(slots * 4)),
+    ).toEqual(reference(source, masks, new Uint8ClampedArray(slots * 4), true));
+  }
+});

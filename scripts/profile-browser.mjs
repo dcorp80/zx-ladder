@@ -8,7 +8,12 @@ const { chromium } = await import(
 );
 const output = process.env.PROFILE_OUTPUT || "/tmp/zx-ladder-profile";
 await fs.mkdir(output, { recursive: true });
-const browser = await chromium.launch({ headless: true });
+// Diagnostic only: exposing non-inlined video methods changes throughput.
+const disableInlining = process.env.PROFILE_DISABLE_INLINING === "true";
+const browser = await chromium.launch({
+  headless: true,
+  args: disableInlining ? ["--js-flags=--no-turbo-inlining"] : [],
+});
 const results = [];
 try {
   const page = await browser.newPage({
@@ -135,6 +140,41 @@ try {
         percent: +((us / total) * 100).toFixed(2),
       }));
   };
+  // Disjoint inclusive stack regions; inlined work may be charged to its parent.
+  function videoRegions(profile) {
+    const nodes = new Map(profile.nodes.map((node) => [node.id, node]));
+    const parents = new Map();
+    for (const node of profile.nodes)
+      for (const child of node.children ?? []) parents.set(child, node.id);
+    const totals = new Map();
+    let total = 0;
+    for (let i = 0; i < profile.samples.length; i++) {
+      const names = new Set();
+      for (let id = profile.samples[i]; nodes.has(id); id = parents.get(id))
+        names.add(nodes.get(id).callFrame.functionName);
+      const region =
+        [
+          "fetch",
+          "captureSymbol",
+          "captureBorderSpan",
+          "captureInterrupt",
+          "cpuEdge",
+        ].find((name) => names.has(name)) ??
+        (names.has("advancePixels") ? "remaining advancePixels" : "other");
+      const duration = profile.timeDeltas[i];
+      totals.set(region, (totals.get(region) ?? 0) + duration);
+      total += duration;
+    }
+    return Object.fromEntries(
+      [...totals].map(([region, duration]) => [
+        region,
+        {
+          ms: +(duration / 1000).toFixed(2),
+          percent: +((100 * duration) / total).toFixed(2),
+        },
+      ]),
+    );
+  }
   async function sample(name, free, turbo, preset, profile = false) {
     await page.getByLabel("Video preset").selectOption(preset);
     await page.getByLabel("Free run (maximum speed)").setChecked(free);
@@ -158,7 +198,11 @@ try {
     if (profile) {
       const w = await worker("Profiler.stop");
       const m = await cdp.send("Profiler.stop");
-      profiles = { worker: summarize(w.profile), main: summarize(m.profile) };
+      profiles = {
+        worker: summarize(w.profile),
+        main: summarize(m.profile),
+        workerRegions: videoRegions(w.profile),
+      };
       await fs.writeFile(
         `${output}/${name}-worker.cpuprofile`,
         JSON.stringify(w.profile),
@@ -250,6 +294,7 @@ try {
           platform: os.platform(),
           browser: browser.version(),
           headless: true,
+          disableInlining,
           rawFrames: process.env.PROFILE_RAW_FRAMES ?? "default",
         },
         results,

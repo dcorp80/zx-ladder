@@ -115,6 +115,13 @@ export class Machine implements ClockContext {
   /** Monotonic 7 MHz time; independent of raster rephasing and reporting deltas. */
   private elapsedTicks = 0;
   private nextAudioFlush = IO_MAX_BATCH_TICKS;
+  // One adapter per machine; reads observe live mode, paging and rebuilt buses.
+  private readonly videoMemory: Pick<DeviceBus, "readMemory"> = {
+    readMemory: (address) =>
+      this.video.extendedMode || this.memory.expanded
+        ? this.screenMemory.readMemory(address)
+        : this.bus.readMemory(address),
+  };
   private readonly screenMemory: Pick<DeviceBus, "readMemory">;
   readonly border: BorderDevice;
   readonly rtc = new GlukRtc();
@@ -484,12 +491,7 @@ export class Machine implements ClockContext {
     // hooks still observe live counters, frame position and CPU pin values.
     const video = this.video;
     const bus = this.bus;
-    const videoMemory = {
-      readMemory: (address: number) =>
-        video.extendedMode || this.memory.expanded
-          ? this.screenMemory.readMemory(address)
-          : bus.readMemory(address),
-    };
+    const videoMemory = this.videoMemory;
     const counters = this.counters;
     const clocks = this.clocks;
     const { width, pixelsPerFrame } = this.videoPreset;

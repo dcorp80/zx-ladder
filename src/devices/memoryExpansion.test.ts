@@ -205,3 +205,77 @@ it("pages through immediate OUT (FD),A as used by demo loaders", () => {
   expect(m.memory.ramPages[0][0]).toBe(99);
   expect(m.memoryMapping.ramPage).toBe(1);
 });
+
+it.each([16384, 32768])(
+  "reads cached screen pairs without consulting status snapshots (%i-byte ROM)",
+  (size) => {
+    const memory = new BankedMemory(new Uint8Array(size));
+    for (let page = 0; page < 8; page++) {
+      memory.ramPages[page][0] = page;
+      memory.ramPages[page][0x3fff] = page + 16;
+    }
+    Object.defineProperty(memory, "mapping", {
+      get() {
+        throw new Error("Status getter entered video hot path");
+      },
+    });
+    for (const latch of [0, 8, 0, 8]) {
+      memory.map(latch);
+      const page = size === 32768 && latch & 8 ? 7 : 5;
+      expect(memory.readScreen(0x4000)).toBe(page);
+      expect(memory.readExtendedScreen(0)).toBe(page);
+      expect(memory.readExtendedScreen(0x4000)).toBe(page ^ 1);
+      expect(memory.readExtendedScreen(0x7fff)).toBe((page ^ 1) + 16);
+    }
+  },
+);
+
+it("updates both cached screen pages on the locking write and warm reset", () => {
+  const { memory, mcu, bus } = fixture();
+  for (let page = 0; page < 8; page++) memory.ramPages[page][0] = page;
+  bus.writeIo(0x7ffd, 0x28);
+  expect(memory.readExtendedScreen(0)).toBe(7);
+  expect(memory.readExtendedScreen(0x4000)).toBe(6);
+  bus.writeIo(0x7ffd, 0);
+  expect(memory.readExtendedScreen(0x4000)).toBe(6);
+  mcu.reset();
+  expect(memory.readExtendedScreen(0)).toBe(5);
+  expect(memory.readExtendedScreen(0x4000)).toBe(4);
+});
+
+it("reuses one video reader across chunks and presets while observing live bus and mode changes", () => {
+  const m = createMachine({ rom: new Uint8Array(16384).fill(0x76) });
+  const adapters = new Set<Pick<DeviceBus, "readMemory">>();
+  const observe = () => {
+    const video = m.video;
+    const fetch = video.fetch.bind(video);
+    video.fetch = (reader, index) => {
+      adapters.add(reader);
+      fetch(reader, index);
+    };
+  };
+  observe();
+  m.advancePixels(1024);
+  m.advancePixels(1024);
+  expect(adapters.size).toBe(1);
+  const reader = [...adapters][0];
+  m.memory.ramPages[4][0] = 44;
+  m.memory.ramPages[5][0] = 55;
+  m.bus = new DeviceBus([
+    m.memory,
+    {
+      id: "probe",
+      memoryInterceptors: [{ start: 0x4000, end: 0x4000, read: () => 99 }],
+    },
+  ]);
+  expect(reader.readMemory(0x4000)).toBe(99);
+  m.setExtendedMode(true);
+  expect(reader.readMemory(0x4000)).toBe(44);
+  m.setVideoPreset(LVIV_VIDEO_PRESET);
+  observe();
+  m.advancePixels(1024);
+  expect(adapters.size).toBe(1);
+  expect(reader.readMemory(0x4000)).toBe(44);
+  m.setExtendedMode(false);
+  expect(reader.readMemory(0x4000)).toBe(55);
+});

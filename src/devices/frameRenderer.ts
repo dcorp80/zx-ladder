@@ -4,50 +4,83 @@ import type { VideoPreset } from "./videoPresets";
 const BORDER = 1,
   BLANK = 2,
   SYNC = 4;
+// Building through byte views gives native-endian words on every host.
+const paletteBytes = new Uint8Array(19 * 4);
+for (let i = 0; i < 16; i++) {
+  const level = i & 8 ? 255 : 215;
+  paletteBytes.set(
+    [i & 2 ? level : 0, i & 4 ? level : 0, i & 1 ? level : 0, 255],
+    i * 4,
+  );
+}
+paletteBytes.set([20, 20, 20, 255, 54, 54, 54, 255, 255, 96, 0, 255], 64);
+const palette = new Uint32Array(paletteBytes.buffer);
+interface RasterSpan {
+  start: number;
+  end: number;
+  kind: number;
+}
+const spanCache = new WeakMap<Uint8Array, RasterSpan[]>();
+// Masks are immutable preset geometry. Compile once, not once per frame.
+function rasterSpans(masks: Uint8Array): RasterSpan[] {
+  const cached = spanCache.get(masks);
+  if (cached) return cached;
+  const spans: RasterSpan[] = [];
+  for (let start = 0; start < masks.length; ) {
+    const mask = masks[start];
+    const kind = mask & SYNC ? SYNC : mask & BLANK ? BLANK : mask & BORDER;
+    let end = start + 1;
+    while (end < masks.length) {
+      const next = masks[end];
+      if ((next & SYNC ? SYNC : next & BLANK ? BLANK : next & BORDER) !== kind)
+        break;
+      end++;
+    }
+    spans.push({ start, end, kind });
+    start = end;
+  }
+  spanCache.set(masks, spans);
+  return spans;
+}
 export function renderCapturedFrame(
   frame: CapturePlanes,
   masks: Uint8Array,
   rgba: Uint8ClampedArray,
   showBorder = true,
 ): Uint8ClampedArray {
-  const { pixels, attributes, border } = frame;
-  for (let c = 0; c < masks.length; c++) {
-    const offset = c * 4;
-    const mask = masks[c];
-    if (mask & (SYNC | BLANK)) {
-      const shade = mask & SYNC ? 54 : 20;
-      rgba[offset] = shade;
-      rgba[offset + 1] = shade;
-      rgba[offset + 2] = shade;
-    } else {
-      const s = c >>> 3;
-      const attr = attributes[s];
-      let bit = (pixels[s] >>> (7 - (c & 7))) & 1;
-      if (attr & 0x80) bit ^= 1;
-      const useBorder =
-        showBorder && !frame.extended[s] && (mask & BORDER) !== 0;
-      const color = useBorder
-        ? border[c] & 7
-        : bit
-          ? attr & 7
-          : (attr >>> 3) & 7;
-      const level = !useBorder && attr & 64 ? 255 : 215;
-      rgba[offset] = color & 2 ? level : 0;
-      rgba[offset + 1] = color & 4 ? level : 0;
-      rgba[offset + 2] = color & 1 ? level : 0;
+  // Canvas ImageData is aligned; retain correct output for arbitrary subviews.
+  const aligned = rgba.byteOffset % 4 === 0;
+  const words = aligned
+    ? new Uint32Array(rgba.buffer, rgba.byteOffset, masks.length)
+    : new Uint32Array(masks.length);
+  const { pixels, attributes, border, extended } = frame;
+  for (const { start, end, kind } of rasterSpans(masks)) {
+    if (kind === SYNC || kind === BLANK) {
+      words.fill(palette[kind === SYNC ? 17 : 16], start, end);
+      continue;
     }
-    rgba[offset + 3] = 255;
+    const borderSpan = showBorder && kind === BORDER;
+    for (let c = start; c < end; ) {
+      const symbol = c >>> 3;
+      const stop = Math.min(end, (symbol + 1) * 8);
+      if (borderSpan && !extended[symbol]) {
+        for (; c < stop; c++) words[c] = palette[border[c] & 7];
+      } else {
+        const attr = attributes[symbol];
+        const bits = pixels[symbol] ^ (attr & 0x80 ? 255 : 0);
+        const bright = attr & 64 ? 8 : 0;
+        const ink = palette[(attr & 7) | bright];
+        const paper = palette[((attr >>> 3) & 7) | bright];
+        for (; c < stop; c++) words[c] = bits & (128 >>> (c & 7)) ? ink : paper;
+      }
+    }
   }
-  // Overlay only captured intervals, including pixels in blanking and sync.
+  // INT overlays include blanking/sync and need not align with symbols/spans.
   for (let i = 0; i < frame.interruptCount; i++) {
     const { start, endExclusive } = frame.interrupts[i];
-    for (let c = start; c < endExclusive; c++) {
-      const offset = c * 4;
-      rgba[offset] = 255;
-      rgba[offset + 1] = 96;
-      rgba[offset + 2] = 0;
-    }
+    words.fill(palette[18], start, endExclusive);
   }
+  if (!aligned) rgba.set(new Uint8Array(words.buffer));
   return rgba;
 }
 
@@ -84,10 +117,14 @@ export function createRasterMasks(preset: VideoPreset): Uint8Array {
 // Capture arrays in the machine are never detached; only this copy is transferred.
 export const captureByteLength = (slots: number) =>
   slots + (slots / 8) * 3 + 28;
+/** Views are retained with their backing buffer; refresh scalar metadata after copying a frame. */
+export interface CaptureViews extends CapturePlanes {
+  refresh(): void;
+}
 export function captureViews(
   bytes: Uint8ClampedArray,
   slots: number,
-): CapturePlanes {
+): CaptureViews {
   const symbols = slots / 8;
   const view = (offset: number, length: number) =>
     new Uint8Array(bytes.buffer, bytes.byteOffset + offset, length);
@@ -96,17 +133,26 @@ export function captureViews(
     bytes.byteOffset + slots + symbols * 3,
     28,
   );
-  return {
+  const frame: CaptureViews = {
     pixels: view(0, symbols),
     attributes: view(symbols, symbols),
     extended: view(symbols * 2, symbols),
     border: view(symbols * 3, slots),
-    interruptCount: ints.getUint32(0, true),
-    interrupts: Array.from({ length: 3 }, (_, i) => ({
-      start: ints.getUint32(4 + i * 8, true),
-      endExclusive: ints.getUint32(8 + i * 8, true),
+    interruptCount: 0,
+    interrupts: Array.from({ length: 3 }, () => ({
+      start: 0,
+      endExclusive: 0,
     })),
+    refresh() {
+      this.interruptCount = ints.getUint32(0, true);
+      for (let i = 0; i < 3; i++) {
+        this.interrupts[i].start = ints.getUint32(4 + i * 8, true);
+        this.interrupts[i].endExclusive = ints.getUint32(8 + i * 8, true);
+      }
+    },
   };
+  frame.refresh();
+  return frame;
 }
 export function copyCapture(
   frame: CapturePlanes,
