@@ -1,3 +1,5 @@
+const FADE_FRAMES = 128;
+
 /** Interleaved stereo ring with one shared cursor and bounded latency. */
 export class StereoQueue {
   private readonly data: Float32Array;
@@ -6,7 +8,8 @@ export class StereoQueue {
   private playing = false;
   private left = 0;
   private right = 0;
-  private fade = 0;
+  private fadeIn = 0;
+  private fadeOut = 0;
   private fadeLeft = 0;
   private fadeRight = 0;
   constructor(readonly sampleRate: number) {
@@ -18,9 +21,10 @@ export class StereoQueue {
   reset(): void {
     this.read = this.count = 0;
     this.playing = false;
+    this.fadeIn = 0;
     this.fadeLeft = this.left;
     this.fadeRight = this.right;
-    this.fade = 128;
+    this.fadeOut = this.left === 0 && this.right === 0 ? 0 : FADE_FRAMES;
   }
   push(samples: Float32Array, frames: number): void {
     const capacity = this.data.length / 2;
@@ -36,24 +40,31 @@ export class StereoQueue {
     this.count += frames;
   }
   render(left: Float32Array, right: Float32Array): void {
-    if (!this.playing && this.count >= Math.ceil(this.sampleRate * 0.04)) {
-      this.playing = true;
-      this.fade = 0;
-    }
+    const primeFrames = Math.ceil(this.sampleRate * 0.04);
     for (let i = 0; i < left.length; i++) {
-      if (this.playing && this.count) {
-        this.left = this.data[this.read * 2];
-        this.right = this.data[this.read * 2 + 1];
+      if (this.playing && this.count === 0) {
+        this.playing = false;
+        this.fadeIn = 0;
+        this.fadeOut = FADE_FRAMES;
+        this.fadeLeft = this.left;
+        this.fadeRight = this.right;
+      }
+      // Retain new samples until the old output reaches zero. Refilling during
+      // a fade, reset or overflow must not jump back to the source level.
+      if (!this.playing && this.fadeOut === 0 && this.count >= primeFrames) {
+        this.playing = true;
+        this.fadeIn = FADE_FRAMES;
+      }
+      if (this.playing) {
+        const gain = this.fadeIn
+          ? (FADE_FRAMES - --this.fadeIn) / FADE_FRAMES
+          : 1;
+        this.left = this.data[this.read * 2] * gain;
+        this.right = this.data[this.read * 2 + 1] * gain;
         this.read = (this.read + 1) % (this.data.length / 2);
         this.count--;
       } else {
-        if (this.playing) {
-          this.playing = false;
-          this.fade = 128;
-          this.fadeLeft = this.left;
-          this.fadeRight = this.right;
-        }
-        const gain = this.fade ? --this.fade / 128 : 0;
+        const gain = this.fadeOut ? --this.fadeOut / FADE_FRAMES : 0;
         this.left = this.fadeLeft * gain;
         this.right = this.fadeRight * gain;
       }

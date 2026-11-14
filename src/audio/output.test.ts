@@ -10,18 +10,18 @@ it("uses host-rate stereo, bounds transfers and recycles acknowledgments across 
     generation?: number;
   }[] = [];
   let receive: ((event: { data: unknown }) => void) | undefined;
-  const connect = vi.fn(() => ({ connect: vi.fn() }));
+  const destination = {};
+  const connect = vi.fn();
+  const createBiquadFilter = vi.fn();
   let nodeOptions: unknown;
   vi.stubGlobal(
     "AudioContext",
     class {
       sampleRate = 44100;
       state = "running";
-      destination = {};
+      destination = destination;
       audioWorklet = { addModule: async () => {} };
-      createBiquadFilter() {
-        return { type: "", frequency: { value: 0 }, connect: vi.fn() };
-      }
+      createBiquadFilter = createBiquadFilter;
       resume = async () => {};
       close = async () => {};
     },
@@ -53,6 +53,8 @@ it("uses host-rate stereo, bounds transfers and recycles acknowledgments across 
   output.setPlaying(true);
   expect(rate).toHaveBeenCalledWith(44100);
   expect(nodeOptions).toMatchObject({ outputChannelCount: [2] });
+  expect(connect).toHaveBeenCalledExactlyOnceWith(destination);
+  expect(createBiquadFilter).not.toHaveBeenCalled();
   const samples = new Float32Array(512);
   samples[0] = 0.2;
   samples[1] = -0.3;

@@ -5,12 +5,12 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.4** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.5** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.4: lighter video execution.** Video clock scheduling and
-normal/extended address selection do less work per raster slot. Timed memory
-fetches and immediate EFF7 mode changes are preserved.
+**New in 0.5.5: smoother audio recovery after gaps.** DC removal now runs before
+playback buffering, and short fades soften underruns and restarts. Emulation
+running below real time can still leave audible gaps.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
@@ -146,8 +146,10 @@ volume, ABC/ACB/Mono routing, and middle-channel contribution to each speaker.
 Both volumes default to 20%; middle contribution defaults to 50%. Preferences
 persist. AY enable mutes playback without removing the chip or stopping its state.
 Gain and routing changes are smoothed. Volume levels use an ideal logarithmic
-approximation rather than a measured analog output model. Tape pulse playback
-and memory contention remain unimplemented.
+approximation rather than a measured analog output model. Pause, stepping,
+hidden tabs and Free run mute playback. Slow or uneven execution can still
+leave gaps; the playback queue fades out and back in instead of switching
+abruptly. Tape pulse playback and memory contention remain unimplemented.
 The initial video wiring uses two V-sync lines for Pentagon and four for
 Lviv, and ignores V8 in screen RAM
 addressing; off-screen wiring and border-effect alignment remain to be
@@ -459,9 +461,12 @@ Audio integrates bit-4 transitions; rendering expands colour changes into border
 spans, with no per-pixel FE sampling or dense audio scan. Writes after a slot's
 border sampling point become effective in the next slot, preserving timing.
 The UI retains its reusable canvas ImageData, browser storage and AudioContext;
-a stereo AudioWorklet provides bounded buffering and underrun fading. The beeper
-has its own 8 kHz low-pass; final stereo output uses 20 Hz DC removal. Browser
-sample rates from 8 to 192 kHz are supported. No SharedArrayBuffer or cross-origin-isolation headers are needed.
+a stereo AudioWorklet removes DC at 20 Hz before its bounded playback queue,
+preserving the previous filter response. Filter state carries across PCM blocks
+and underruns; an explicit playback reset initializes it from the next input.
+The queue uses 128-sample fades at stops and restarts, finishing a fade-out before
+resuming playback. The beeper retains its separate 8 kHz low-pass. Browser sample
+rates from 8 to 192 kHz are supported. No SharedArrayBuffer or cross-origin-isolation headers are needed.
 
 The worker adapter exposes acknowledged pause, raster-slot stepping and coherent
 memory inspection. CPU instruction/half-cycle stepping, breakpoints and a

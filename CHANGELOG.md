@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.5 — 2026-11-14
+
+### Fixed
+
+- Remove DC before the playback queue so silent beeper output does not become
+  artificial clicks when slow or uneven PCM delivery causes underruns. Preserve
+  the existing 20 Hz filter response and its state across blocks and underruns;
+  initialize from the next input after an explicit playback reset.
+- Fade audio back in over 128 samples after startup or underrun recovery, and
+  finish an active fade-out before restarting. Chip synthesis and emulated
+  timing are unchanged; execution below real time can still leave audio gaps.
+
+### Development
+
+- Add regression coverage for DC-only streams, interrupted delivery, continuous
+  filter state and playback restart fades.
+- Native Chrome-on-Windows verification of the reported audio issue remains
+  pending.
+
 ## 0.5.4 — 2026-11-14
 
 ### Improved

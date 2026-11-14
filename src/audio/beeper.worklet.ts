@@ -1,3 +1,4 @@
+import { StereoDcFilter } from "./dcFilter";
 import { StereoQueue } from "./stereoQueue";
 
 declare const sampleRate: number;
@@ -9,15 +10,19 @@ declare function registerProcessor(
   processor: typeof AudioWorkletProcessor,
 ): void;
 class SoundProcessor extends AudioWorkletProcessor {
+  private readonly dcFilter = new StereoDcFilter(sampleRate);
   private readonly queue = new StereoQueue(sampleRate);
   constructor() {
     super();
     this.port.onmessage = ({ data }) => {
-      if (data.type === "reset") this.queue.reset();
-      else if (
+      if (data.type === "reset") {
+        this.dcFilter.reset();
+        this.queue.reset();
+      } else if (
         data.type === "samples" &&
         data.samples instanceof Float32Array
       ) {
+        this.dcFilter.process(data.samples, data.frames);
         this.queue.push(data.samples, data.frames);
         this.port.postMessage(
           {

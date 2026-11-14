@@ -107,8 +107,8 @@ it("keeps stereo channels synchronized through overflow, reset and underrun", ()
   const left = new Float32Array(300),
     right = new Float32Array(300);
   q.render(left, right);
-  expect(left[0]).toBe(0.25);
-  expect(right[0]).toBe(-0.5);
+  expect(left[0]).toBe(0.25 / 128);
+  expect(right[0]).toBe(-0.5 / 128);
   for (let i = 0; i < 300; i++) expect(right[i]).toBe(-2 * left[i]);
   expect(left[299]).toBe(0);
   q.reset();

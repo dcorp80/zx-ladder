@@ -54,10 +54,7 @@ export class SoundOutput {
             )
               this.buffers.push(data.samples);
           };
-          const highpass = context.createBiquadFilter();
-          highpass.type = "highpass";
-          highpass.frequency.value = 20;
-          node.connect(highpass).connect(context.destination);
+          node.connect(context.destination);
           this.reset();
         });
       }
