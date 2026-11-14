@@ -79,7 +79,17 @@ export class TimedVideo implements RasterVideo {
   readonly pixelAddresses: number[];
   readonly attributeAddresses: number[];
   readonly masks: number[];
-  extendedMode = false;
+  private extended = false;
+  get extendedMode(): boolean {
+    return this.extended;
+  }
+  set extendedMode(enabled: boolean) {
+    this.extended = enabled;
+    this.activePixels = enabled ? this.extendedPixels : this.pixelAddresses;
+    this.activeAttributes = enabled
+      ? this.extendedAttributes
+      : this.attributeAddresses;
+  }
   readonly io: readonly IoClaim[] = [
     {
       lowMask: 255,
@@ -93,6 +103,8 @@ export class TimedVideo implements RasterVideo {
   ];
   private readonly extendedPixels: number[];
   private readonly extendedAttributes: number[];
+  private activePixels: number[];
+  private activeAttributes: number[];
   pixelFetch = 0;
   attributeFetch = 0;
   nextFetchIsPixel = true;
@@ -115,6 +127,8 @@ export class TimedVideo implements RasterVideo {
     this.attributeAddresses = new Array<number>(symbols).fill(0);
     this.extendedPixels = new Array<number>(symbols).fill(0);
     this.extendedAttributes = new Array<number>(symbols).fill(0);
+    this.activePixels = this.pixelAddresses;
+    this.activeAttributes = this.attributeAddresses;
     this.masks = createRasterMasks(preset);
     const planes = (): CapturePlanes => ({
       events: createCaptureEvents(pixelsPerFrame),
@@ -206,17 +220,9 @@ export class TimedVideo implements RasterVideo {
   }
   fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void {
     if (this.nextFetchIsPixel)
-      this.pixelFetch = bus.readMemory(
-        this.extendedMode
-          ? this.extendedPixels[symbolIndex]
-          : this.pixelAddresses[symbolIndex],
-      );
+      this.pixelFetch = bus.readMemory(this.activePixels[symbolIndex]);
     else
-      this.attributeFetch = bus.readMemory(
-        this.extendedMode
-          ? this.extendedAttributes[symbolIndex]
-          : this.attributeAddresses[symbolIndex],
-      );
+      this.attributeFetch = bus.readMemory(this.activeAttributes[symbolIndex]);
     this.nextFetchIsPixel = !this.nextFetchIsPixel;
   }
   cpuAccess(): void {

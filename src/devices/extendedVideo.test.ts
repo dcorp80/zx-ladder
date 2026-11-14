@@ -145,3 +145,101 @@ it("uses the latest checkbox or EFF7 bit change", () => {
   m.setReset(true);
   expect(m.extendedMode).toBe(false);
 });
+
+for (const preset of [PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET]) {
+  it.each(["guest EFF7", "host control", "direct assignment"])(
+    `applies %s between pixel and attribute fetches in ${preset.id}`,
+    (source) => {
+      const machine = createMachine({
+        rom: new Uint8Array(16384),
+        videoPreset: preset,
+      });
+      const video = machine.video as TimedVideo;
+      const symbol = video.vPositions.findIndex(
+        (v, index) =>
+          v === 0 && video.hPositions[(index * 8) % preset.width] === 128,
+      );
+      expect(symbol).toBeGreaterThanOrEqual(0);
+      const extendedPixel = preset.id === "pentagon" ? 0x2000 : 0;
+      const reads: number[] = [];
+      const bus = {
+        readMemory: (address: number) => {
+          reads.push(address);
+          return reads.length;
+        },
+      };
+      const changeMode = (enabled: boolean) => {
+        if (source === "guest EFF7")
+          machine.bus.writeIo(0xeff7, enabled ? 64 : 0);
+        else if (source === "host control") machine.setExtendedMode(enabled);
+        else video.extendedMode = enabled;
+      };
+
+      video.fetch(bus, symbol);
+      changeMode(true);
+      video.fetch(bus, symbol);
+      video.fetch(bus, symbol);
+      changeMode(false);
+      video.fetch(bus, symbol);
+      expect(reads).toEqual([
+        0x4000,
+        extendedPixel | 0x1800,
+        extendedPixel,
+        0x5800,
+      ]);
+      expect(video.pixelFetch).toBe(3);
+      expect(video.attributeFetch).toBe(4);
+    },
+  );
+}
+
+it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
+  "switches from a 48K bus interceptor to physical extended reads within one chunk in $id",
+  (preset) => {
+    const reads: number[] = [];
+    const machine = createMachine({
+      rom: new Uint8Array(16384),
+      cpu7: true,
+      videoPreset: preset,
+      devices: [
+        {
+          id: "mode-switching-screen-read",
+          memoryInterceptors: [
+            {
+              start: 0x4000,
+              end: 0x7fff,
+              read: (address) => {
+                reads.push(address);
+                if (reads.length === 1) {
+                  machine.bus.writeIo(0xeff7, 64);
+                  return 0xa1;
+                }
+                return 0xc3;
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const video = machine.video as TimedVideo;
+    machine.cpu.clockEdge = () => {};
+    machine.memory.ramPages[4].fill(0xb2);
+    machine.memory.ramPages[5].fill(0xd4);
+
+    machine.advancePixels(2);
+    expect(machine.extendedMode).toBe(true);
+    expect(reads).toEqual([video.pixelAddresses[0]]);
+    expect(video.pixelFetch).toBe(0xa1);
+    expect(video.attributeFetch).toBe(0xb2);
+    machine.advancePixels(1);
+    expect(video.pixelFetch).toBe(0xb2);
+
+    machine.setExtendedMode(false);
+    machine.advancePixels(1);
+    expect(reads).toEqual([
+      video.pixelAddresses[0],
+      video.attributeAddresses[0],
+    ]);
+    expect(video.attributeFetch).toBe(0xc3);
+  },
+);

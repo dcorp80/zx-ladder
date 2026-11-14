@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.4 — 2026-11-14
+
+### Improved
+
+- Keep the default eight-slot video-clock countdown local to each execution
+  chunk, reducing per-slot dispatch and property writes. Preserve custom clock
+  scheduling, chunk boundaries and exception/retry behavior.
+- Cache the active normal/extended pixel and attribute address tables when
+  mode changes are applied. Preserve immediate guest EFF7 writes and
+  frame-boundary handling of running host requests, alongside fetch alternation,
+  latches, paging and memory interception.
+
+### Development
+
+- Add regression coverage for fragmented execution, custom clock phases,
+  preset changes, exception retries and mode switches between memory fetches.
+- Check CPU, RAM, frame/capture, counter and AY state equivalence in browser
+  execution benchmarks. Gains depend on workload; cached-table
+  results in loaded Exolon were below 1%. Measurements cover execution capacity;
+  paced frame rate continues to follow video timing.
+
 ## 0.5.3 — 2026-11-13
 
 ### Improved

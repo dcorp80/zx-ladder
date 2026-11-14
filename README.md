@@ -5,13 +5,12 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.3** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.4** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.3: steadier frame pacing and a lighter capture/render pipeline.**
-Frames compute promptly and wait for their presentation deadline; the main
-thread expands compact captures into the final image. The 384×304 screen mode
-remains available through EFF7 bit 6 or the matching checkbox in Video.
+**New in 0.5.4: lighter video execution.** Video clock scheduling and
+normal/extended address selection do less work per raster slot. Timed memory
+fetches and immediate EFF7 mode changes are preserved.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
@@ -419,6 +418,11 @@ reduce expansion work. Machine-side video storage uses plain arrays; capture
 views and output buffers are reused. Mode histories grow when needed and retain
 their storage across frames. Without Worker support, the synchronous adapter
 remains available.
+
+The default eight-slot video clock keeps its countdown local to each execution
+chunk; custom clock hooks retain the generic scheduler. Pixel and attribute
+address tables switch when extended mode changes, preserving fetch order and
+shared memory arbitration.
 
 Execution yields between bounded 4 ms batches. Free run uses a MessageChannel
 scheduler to yield without nested-timer clamping. Normal mode uses the same
