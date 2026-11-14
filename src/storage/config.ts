@@ -14,6 +14,7 @@ export interface AppConfig {
   decodeFd: boolean;
   rtcEnabled: boolean;
   freeRun: boolean;
+  showTechnicalFields: boolean;
   showBorder: boolean;
   lateInt: boolean;
   keyboardColor: "theme" | "light" | "dark";
@@ -49,6 +50,10 @@ export function sanitizeConfig(value: unknown): AppConfig {
       typeof config.rtcEnabled === "boolean" ? config.rtcEnabled : true,
     turbo: typeof config.turbo === "boolean" ? config.turbo : false,
     freeRun: typeof config.freeRun === "boolean" ? config.freeRun : false,
+    showTechnicalFields:
+      typeof config.showTechnicalFields === "boolean"
+        ? config.showTechnicalFields
+        : true,
     showBorder:
       typeof config.showBorder === "boolean" ? config.showBorder : true,
     // Experimental timing is parked; discard previously persisted opt-ins.

@@ -133,6 +133,34 @@ it("keeps one video packet in flight and returns the latest paused frame after r
     h.engine.dispose();
   }
 });
+
+it.each([false, true])(
+  "reports technical fields while retaining full raster packets (raw=%s)",
+  (raw) => {
+    const h = harness(raw);
+    try {
+      const changed = h.send({ type: "technicalFields", value: false }, 1);
+      expect(changed.state?.showTechnicalFields).toBe(false);
+      h.send({ type: "step" }, 1);
+      const frame = h.messages.find((m) => m.type === "frame") as Extract<
+        FromWorker,
+        { type: "frame" }
+      >;
+      expect(frame.state.showTechnicalFields).toBe(false);
+      expect(frame.bytes.length).toBe(
+        raw
+          ? captureByteLength(PENTAGON_VIDEO_PRESET.pixelsPerFrame)
+          : PENTAGON_VIDEO_PRESET.pixelsPerFrame * 4,
+      );
+      expect(
+        h.send({ type: "technicalFields", value: true }, 2).state
+          ?.showTechnicalFields,
+      ).toBe(true);
+    } finally {
+      h.engine.dispose();
+    }
+  },
+);
 it("discards obsolete geometry and re-presents rejected packets at the current epoch", () => {
   const h = harness();
   try {

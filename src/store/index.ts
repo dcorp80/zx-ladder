@@ -91,12 +91,14 @@ export interface MachineLike {
   readonly framePosition: number;
   readonly cpu7: boolean;
   readonly extendedMode?: boolean;
+  readonly showTechnicalFields?: boolean;
   readonly cpuLoad: number | null;
   readonly memoryMapping?: MemoryMapping;
   readonly hasFrame: boolean;
   setLateInt(enabled: boolean): void;
   setDecodeFd?(enabled: boolean): void;
   setExtendedMode?(enabled: boolean): void;
+  setShowTechnicalFields?(enabled: boolean): void;
   setRtcEnabled?(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setReset(pressed: boolean): void;
@@ -210,6 +212,7 @@ export interface Store {
   readonly decodeFd: Accessor<boolean>;
   readonly rtcEnabled: Accessor<boolean>;
   readonly freeRun: Accessor<boolean>;
+  readonly showTechnicalFields: Accessor<boolean>;
   readonly showBorder: Accessor<boolean>;
   readonly lateInt: Accessor<boolean>;
   readonly theme: Accessor<Theme>;
@@ -228,6 +231,7 @@ export interface Store {
   setFreeRun(enabled: boolean): void;
   setReset(pressed: boolean): void;
   setExtendedMode(enabled: boolean): void;
+  setShowTechnicalFields(enabled: boolean): void;
   setShowBorder(enabled: boolean): void;
   setTheme(theme: Theme): void;
   importRom(file: File, as128?: boolean): Promise<void>;
@@ -393,7 +397,13 @@ export async function createAppStore(
     const [turbo, setTurboSignal] = createSignal(config.turbo);
     const [freeRun, setFreeRunSignal] = createSignal(config.freeRun);
     const [lateInt, setLateIntSignal] = createSignal(config.lateInt);
-    const [showBorder, setShowBorder] = createSignal(config.showBorder);
+    const [showTechnicalFields, setShowTechnicalFieldsSignal] = createSignal(
+      config.showTechnicalFields,
+    );
+    const [showBorderPreference, setShowBorderPreference] = createSignal(
+      config.showBorder,
+    );
+    const showBorder = () => !showTechnicalFields() || showBorderPreference();
     const [keyboardVersion, setKeyboardVersion] = createSignal(0);
     const [keyboardLayout, setKeyboardLayoutSignal] = createSignal(
       config.keyboardLayout,
@@ -456,7 +466,8 @@ export async function createAppStore(
           decodeFd: decodeFd(),
           rtcEnabled: rtcEnabled(),
           freeRun: freeRun(),
-          showBorder: showBorder(),
+          showTechnicalFields: showTechnicalFields(),
+          showBorder: showBorderPreference(),
           lateInt: lateInt(),
           theme: theme(),
           keyboardLayout: keyboardLayout(),
@@ -578,6 +589,7 @@ export async function createAppStore(
           lateInt: lateInt(),
           videoPreset: videoPreset(),
         });
+        next.setShowTechnicalFields?.(showTechnicalFields());
       } catch (cause) {
         setError(messageForError(cause, "The machine could not be created."));
         return false;
@@ -932,6 +944,13 @@ export async function createAppStore(
         refresh();
       },
       showBorder,
+      showTechnicalFields,
+      setShowTechnicalFields(enabled: boolean) {
+        machine()?.setShowTechnicalFields?.(enabled);
+        setShowTechnicalFieldsSignal(enabled);
+        persistConfig();
+        refresh();
+      },
       lateInt,
       setLateInt(_enabled: boolean) {
         machine()?.setLateInt(false);
@@ -1112,7 +1131,7 @@ export async function createAppStore(
         }
       },
       setShowBorder(enabled: boolean) {
-        setShowBorder(enabled);
+        setShowBorderPreference(enabled);
         persistConfig();
       },
       setTheme(nextTheme: Theme) {

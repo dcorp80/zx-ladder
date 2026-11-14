@@ -50,6 +50,7 @@ export function renderCapturedFrame(
   masks: RasterMasks,
   rgba: Uint8ClampedArray,
   showBorder = true,
+  showTechnicalFields = true,
 ): Uint8ClampedArray {
   // Canvas ImageData is aligned; retain correct output for arbitrary subviews.
   const aligned = rgba.byteOffset % 4 === 0;
@@ -102,14 +103,16 @@ export function renderCapturedFrame(
     }
   }
   // INT overlays include blanking/sync and need not align with symbols/spans.
-  if (events && !events.intComplex) {
-    if (events.intStart >= 0)
-      words.fill(palette[18], events.intStart, events.intEnd);
-  } else
-    for (let i = 0; i < frame.interruptCount; i++) {
-      const { start, endExclusive } = frame.interrupts[i];
-      words.fill(palette[18], start, endExclusive);
-    }
+  if (showTechnicalFields) {
+    if (events && !events.intComplex) {
+      if (events.intStart >= 0)
+        words.fill(palette[18], events.intStart, events.intEnd);
+    } else
+      for (let i = 0; i < frame.interruptCount; i++) {
+        const { start, endExclusive } = frame.interrupts[i];
+        words.fill(palette[18], start, endExclusive);
+      }
+  }
   if (!aligned) rgba.set(new Uint8Array(words.buffer));
   return rgba;
 }
@@ -142,6 +145,79 @@ export function createRasterMasks(preset: VideoPreset): number[] {
       (masks[c] & ~BORDER) |
       border[(c - delay + pixelsPerFrame) % pixelsPerFrame];
   return masks;
+}
+
+export interface RasterViewport {
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly width: number;
+  readonly height: number;
+}
+const viewportCache = new WeakMap<VideoPreset, RasterViewport>();
+
+// Keep every visible slot, including presets whose visible area wraps at zero.
+function visibleAxis(occupied: Uint8Array): [number, number] {
+  const size = occupied.length;
+  let gap = 0,
+    longest = 0,
+    start = 0;
+  for (let i = 0; i < size * 2; i++) {
+    gap = occupied[i % size] ? 0 : Math.min(size, gap + 1);
+    if (gap > longest) {
+      longest = gap;
+      start = (i + 1) % size;
+    }
+  }
+  return longest === size ? [0, size] : [start, size - longest];
+}
+
+export function rasterViewport(
+  preset: VideoPreset,
+  showTechnicalFields = true,
+): RasterViewport {
+  const { width, height } = preset;
+  if (showTechnicalFields) return { sourceX: 0, sourceY: 0, width, height };
+  const cached = viewportCache.get(preset);
+  if (cached) return cached;
+  const columns = new Uint8Array(width),
+    rows = new Uint8Array(height);
+  const masks = createRasterMasks(preset);
+  for (let c = 0; c < masks.length; c++) {
+    if (masks[c] & (BLANK | SYNC)) continue;
+    columns[c % width] = 1;
+    rows[Math.floor(c / width)] = 1;
+  }
+  const [sourceX, visibleWidth] = visibleAxis(columns);
+  const [sourceY, visibleHeight] = visibleAxis(rows);
+  const viewport = {
+    sourceX,
+    sourceY,
+    width: visibleWidth,
+    height: visibleHeight,
+  };
+  viewportCache.set(preset, viewport);
+  return viewport;
+}
+
+export function copyRasterViewport(
+  source: Uint8ClampedArray,
+  preset: VideoPreset,
+  target: Uint8ClampedArray,
+  viewport: RasterViewport,
+): void {
+  const { sourceX, sourceY, width, height } = viewport;
+  const firstWidth = Math.min(width, preset.width - sourceX);
+  for (let y = 0; y < height; y++) {
+    const row = ((sourceY + y) % preset.height) * preset.width * 4;
+    const offset = y * width * 4;
+    const start = row + sourceX * 4;
+    target.set(source.subarray(start, start + firstWidth * 4), offset);
+    if (firstWidth < width)
+      target.set(
+        source.subarray(row, row + (width - firstWidth) * 4),
+        offset + firstWidth * 4,
+      );
+  }
 }
 // Fixed reusable transport: legacy planes/FE region, INT header, then a mode
 // event header and room for one transition per symbol (the physical maximum).

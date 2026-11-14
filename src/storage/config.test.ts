@@ -45,12 +45,19 @@ it("restores configuration and the saved ROM paused", async () => {
 it("validates persisted fields, malformed JSON, and future configuration versions", () => {
   const defaults = sanitizeConfig(null);
   expect(defaults.theme).toBe("system");
+  expect(defaults.showTechnicalFields).toBe(true);
+  expect(sanitizeConfig({ version: 1 }).showTechnicalFields).toBe(true);
+  expect(
+    sanitizeConfig({ version: 1, showTechnicalFields: false })
+      .showTechnicalFields,
+  ).toBe(false);
   expect(
     sanitizeConfig({
       version: 1,
       videoPreset: "unknown",
       turbo: "true",
       freeRun: 1,
+      showTechnicalFields: "false",
       showBorder: null,
       theme: "blue",
     }),

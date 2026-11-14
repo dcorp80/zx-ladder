@@ -5,12 +5,14 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.5** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.6** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.5: smoother audio recovery after gaps.** DC removal now runs before
-playback buffering, and short fades soften underruns and restarts. Emulation
-running below real time can still leave audible gaps.
+**New in 0.5.6: a screen-only view with lighter video collection.** Turn off
+**Show technical fields** in Video to hide sync, blanking and the INT overlay.
+The cropped screen has an 8 px black frame on desktop and 4 px on mobile.
+Skipping hidden video reads reduces execution work while keeping screen and
+border timing intact.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
@@ -56,14 +58,16 @@ persisted; alarm interrupts and guest-set clock offsets are not emulated.
 it changes the bit; subsequent software writes to EFF7 can set or clear it again.
 The latest change wins. Reset and Cold boot clear the mode; changing video
 preset preserves it. The mode is not saved between sessions.
-While active, **Show border over captured symbols** is unchecked and disabled;
-its saved preference returns when the mode is cleared. The full raster canvas
-retains its dimensions. Pentagon uses the extended screen layout; Lviv applies
+While active, **Show border over captured symbols** is disabled and the extended
+screen supplies border-region pixels. With technical fields shown, that checkbox
+is unchecked; hiding technical fields keeps it checked. Its saved normal-mode
+preference returns when those overrides end. The selected canvas view retains
+its dimensions when extended mode changes. Pentagon uses the extended screen layout; Lviv applies
 the same wiring to its own counters, so software written for Pentagon can look
 irregular there. The bit also operates on 48K machines, where software cannot
 populate the companion RAM page through normal CPU mappings.
 
-Video preset, Turbo, Free run, border visibility, and theme are saved in
+Video preset, Turbo, Free run, technical-field and border visibility, and theme are saved in
 localStorage and restored with the saved ROM. Press Run or Step frame to begin. **System** is the
 default theme and follows OS light/dark changes live; **Light** and **Dark**
 override it. The theme cache is applied before the first paint.
@@ -87,11 +91,20 @@ override it. The theme cache is applied before the first paint.
   and accumulated clocks; a running emulator continues running.
 - **Show border** overlays the sampled border latch on captured symbols.
   Turning it off exposes the symbol data captured outside the paper area.
+- **Show technical fields** is on by default. Turn it off to display only the
+  visible screen and border, surrounded by a black frame (8 px on desktop,
+  4 px on mobile). Sync, blanking
+  and the orange INT overlay are hidden; the border checkbox is checked and
+  disabled. Video skips memory reads for hidden symbols, with eligibility
+  cached once per eight-slot group. Normal mode skips data reads under the
+  border; extended mode retains its visible border data. An EFF7 mode change
+  can take until the next complete frame to refresh newly visible data.
 
 The Pentagon video preset uses 448 × 320 pixels, 71,680 base CPU ticks per
 frame, and a derived rate of 48.828125 Hz. Lviv uses 448 × 312 pixels,
-69,888 base CPU ticks, and approximately 50.080128 Hz. Rendering includes
-sync and blanking. Both use the same uncontended 48K machine and 7 MHz
+69,888 base CPU ticks, and approximately 50.080128 Hz. The full view includes
+sync and blanking; the visible-only view is 370 × 304 for Pentagon and
+352 × 288 for Lviv. Both use the same uncontended 48K machine and 7 MHz
 memory-slot clock. Video presets define raster counters, signal windows,
 INT timing, and FLASH advancement/bit selection independently of that clock.
 The machine captures pixel and attribute latches as execution progresses,

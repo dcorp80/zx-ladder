@@ -143,6 +143,7 @@ export class WorkerMachine implements MachineLike {
   framePosition = 0;
   cpu7: boolean;
   extendedMode = false;
+  showTechnicalFields = true;
   cpuLoad: number | null = null;
   memoryMapping: MemoryMapping = { ramPage: 0, romPage: 0, screenPage: 5 };
   hasFrame = false;
@@ -228,6 +229,7 @@ export class WorkerMachine implements MachineLike {
     this.cpu.regs.pc = state.pc;
     this.cpu7 = state.cpu7;
     this.extendedMode = !!state.extendedMode;
+    this.showTechnicalFields = state.showTechnicalFields;
     this.cpuLoad = state.cpuLoad;
     this.memoryMapping = state.memoryMapping;
     this.tape.status = state.tape;
@@ -365,6 +367,13 @@ export class WorkerMachine implements MachineLike {
       this.fire({ type: "border", value });
     }
   }
+  setShowTechnicalFields(value: boolean): void {
+    if (value !== this.showTechnicalFields) {
+      this.showTechnicalFields = value;
+      this.epoch++;
+      this.fire({ type: "technicalFields", value });
+    }
+  }
   setLateInt(value: boolean): void {
     this.fire({ type: "lateInt", value });
   }
@@ -460,7 +469,8 @@ export class WorkerMachine implements MachineLike {
         this.capturedPlanes,
         this.masks,
         target,
-        showBorder,
+        this.showTechnicalFields ? showBorder : true,
+        this.showTechnicalFields,
       );
     }
     if (target !== this.rgba) target.set(this.rgba);

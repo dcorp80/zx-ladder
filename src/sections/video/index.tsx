@@ -1,4 +1,8 @@
-import { type Component, createEffect } from "solid-js";
+import { type Component, createEffect, createMemo } from "solid-js";
+import {
+  copyRasterViewport,
+  rasterViewport,
+} from "../../devices/frameRenderer";
 import { VIDEO_PRESETS } from "../../devices/videoPresets";
 import { rasterTiming } from "../../machine/config";
 import { useStore } from "../../store";
@@ -10,23 +14,35 @@ const VideoCanvas: Component<{
   const store = useStore();
   let canvas: HTMLCanvasElement | undefined;
   let context: CanvasRenderingContext2D | null = null;
-  let image: ImageData | undefined;
+  let fullImage: ImageData | undefined;
+  let croppedImage: ImageData | undefined;
   let paintedVersion = -1;
   let paintedBorder: boolean | undefined;
+  let paintedTechnical: boolean | undefined;
   let paintedMachine: ReturnType<typeof store.machine>;
+  const preset = createMemo(() => {
+    store.frameVersion();
+    return store.machine()?.videoPreset ?? store.videoPreset();
+  });
+  const viewport = createMemo(() =>
+    rasterViewport(preset(), store.showTechnicalFields()),
+  );
 
   const paint = () => {
     const element = canvas;
     const active = store.machine();
     const version = store.frameVersion();
     const border = store.showBorder();
+    const technical = store.showTechnicalFields();
+    const visible = viewport();
     if (!element || !active?.hasFrame) return;
     if (
       paintedMachine === active &&
       paintedVersion === version &&
       paintedBorder === border &&
-      image?.width === active.width &&
-      image?.height === active.height
+      paintedTechnical === technical &&
+      fullImage?.width === active.width &&
+      fullImage?.height === active.height
     )
       return;
     try {
@@ -34,17 +50,34 @@ const VideoCanvas: Component<{
       if (!context) return;
       // Allocate once per canvas/raster size, never once per frame.
       if (
-        !image ||
-        image.width !== active.width ||
-        image.height !== active.height
+        !fullImage ||
+        fullImage.width !== active.width ||
+        fullImage.height !== active.height
       )
-        image = context.createImageData(active.width, active.height);
-      const rgba = active.renderFrame(border, image.data);
-      if (rgba !== image.data) image.data.set(rgba);
+        fullImage = context.createImageData(active.width, active.height);
+      const rgba = active.renderFrame(border, fullImage.data);
+      if (rgba !== fullImage.data) fullImage.data.set(rgba);
+      let image = fullImage;
+      if (!technical) {
+        if (
+          !croppedImage ||
+          croppedImage.width !== visible.width ||
+          croppedImage.height !== visible.height
+        )
+          croppedImage = context.createImageData(visible.width, visible.height);
+        copyRasterViewport(
+          fullImage.data,
+          preset(),
+          croppedImage.data,
+          visible,
+        );
+        image = croppedImage;
+      }
       context.putImageData(image, 0, 0);
       paintedMachine = active;
       paintedVersion = version;
       paintedBorder = border;
+      paintedTechnical = technical;
     } catch (cause) {
       // A missing canvas context in jsdom is harmless. Keep browser rendering
       // failures out of Solid's effect queue so controls remain usable.
@@ -57,12 +90,16 @@ const VideoCanvas: Component<{
   createEffect(() => {
     store.frameVersion();
     store.showBorder();
+    store.showTechnicalFields();
     store.machine();
     paint();
   });
 
   return (
-    <div class="machine-canvas-wrap">
+    <div
+      class="machine-canvas-wrap"
+      classList={{ "is-screen-only": !store.showTechnicalFields() }}
+    >
       <canvas
         ref={(element) => {
           canvas = element;
@@ -74,10 +111,14 @@ const VideoCanvas: Component<{
         onPointerDown={(event) =>
           event.currentTarget.focus({ preventScroll: true })
         }
-        width={store.status().width}
-        height={store.status().height}
+        width={viewport().width}
+        height={viewport().height}
         role="img"
-        aria-label="ZX Spectrum full raster"
+        aria-label={
+          store.showTechnicalFields()
+            ? "ZX Spectrum full raster"
+            : "ZX Spectrum screen"
+        }
       />
       {!store.status().hasFrame && (
         <div class="canvas-placeholder">
@@ -92,6 +133,9 @@ const VideoCanvas: Component<{
 
 export const VideoSection: Component = () => {
   const store = useStore();
+  const viewport = createMemo(() =>
+    rasterViewport(store.videoPreset(), store.showTechnicalFields()),
+  );
   let canvas: HTMLCanvasElement | undefined;
   createEffect(() => {
     if (!store.screenFocusRequest()) return;
@@ -104,7 +148,7 @@ export const VideoSection: Component = () => {
     <SectionFrame
       title="Video"
       openRequest={store.screenFocusRequest()}
-      subtitle={`${store.videoPreset().label} · ${store.videoPreset().width}×${store.videoPreset().height}`}
+      subtitle={`${store.videoPreset().label} · ${viewport().width}×${viewport().height}`}
       defaultFolded={false}
     >
       <div class="video-layout">
@@ -130,8 +174,23 @@ export const VideoSection: Component = () => {
           <label class="setting-row setting-check">
             <input
               type="checkbox"
-              checked={!store.status().extendedMode && store.showBorder()}
-              disabled={!!store.status().extendedMode}
+              checked={store.showTechnicalFields()}
+              onChange={(event) =>
+                store.setShowTechnicalFields(event.currentTarget.checked)
+              }
+            />
+            <span>Show technical fields</span>
+          </label>
+          <label class="setting-row setting-check">
+            <input
+              type="checkbox"
+              checked={
+                !store.showTechnicalFields() ||
+                (!store.status().extendedMode && store.showBorder())
+              }
+              disabled={
+                !store.showTechnicalFields() || !!store.status().extendedMode
+              }
               onChange={(event) =>
                 store.setShowBorder(event.currentTarget.checked)
               }
@@ -184,9 +243,10 @@ export const VideoSection: Component = () => {
             </div>
           </dl>
           <p class="machine-note">
-            The canvas is the complete timed raster, including sync and
-            blanking. The orange line marks active INT, ending on timeout or CPU
-            acknowledgment. Presentation uses the latest completed frame only.
+            {store.showTechnicalFields()
+              ? "The canvas is the complete timed raster, including sync and blanking. The orange line marks active INT, ending on timeout or CPU acknowledgment."
+              : "The canvas shows the visible screen and border."}{" "}
+            Presentation uses the latest completed frame only.
           </p>
         </div>
       </div>

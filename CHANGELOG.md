@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.6 — 2026-11-15
+
+### Added
+
+- A saved **Show technical fields** option in Video, enabled by default. Turn
+  it off to display only the visible screen and border, with sync, blanking and
+  the INT overlay hidden. Force the border checkbox on while hidden, preserving
+  its previous preference for restoration.
+- A black HTML frame around the cropped canvas: 8 px on desktop and 4 px on
+  mobile. Preserve responsive sizing, pixelated rendering and keyboard focus.
+
+### Improved
+
+- Skip unused video reads with eligibility cached once per eight-slot symbol.
+  Normal mode omits reads under the border; extended mode retains visible
+  border data. Preserve fetch phase, live EFF7 address routing and screen paging.
+- Keep the original unconditional fetch path for full-raster collection and
+  custom devices. Restore full reads after interrupted execution until video
+  timing is rephased. Newly visible data after mode changes catches up on the
+  next complete frame.
+
+### Development
+
+- Cover cropped geometry, wrapped presets, capture equivalence, exception
+  recovery, saved preferences and worker/synchronous propagation. Verify the
+  cropped layout in desktop and mobile browsers.
+- Confirm loaded Exolon execution gains of approximately 8–15% on the measured
+  host, with default-view medians near baseline. These execution measurements
+  do not guarantee a paced FPS improvement on other machines.
+
 ## 0.5.5 — 2026-11-14
 
 ### Fixed

@@ -312,6 +312,16 @@ h1 {
   image-rendering: pixelated;
 }
 
+.machine-canvas-wrap.is-screen-only {
+  border: 8px solid #000;
+  border-radius: 0;
+  background: #000;
+}
+
+.machine-canvas-wrap.is-screen-only .machine-canvas {
+  min-width: 0;
+}
+
 .canvas-placeholder {
   position: absolute;
   inset: 0;
@@ -530,6 +540,10 @@ h1 {
 
   .video-layout {
     grid-template-columns: 1fr;
+  }
+
+  .machine-canvas-wrap.is-screen-only {
+    border-width: 4px;
   }
 }
 

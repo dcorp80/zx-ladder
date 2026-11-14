@@ -86,6 +86,7 @@ export class WorkerEngine {
       pc: m.cpu.regs.pc,
       cpu7: m.cpu7,
       extendedMode: m.extendedMode,
+      showTechnicalFields: m.showTechnicalFields,
       cpuLoad: m.cpuLoad,
       memoryMapping: m.memoryMapping,
       tape: m.tape.status,
@@ -309,6 +310,10 @@ export class WorkerEngine {
           break;
         case "border":
           this.border = c.value;
+          this.dirty = true;
+          break;
+        case "technicalFields":
+          m.setShowTechnicalFields(c.value);
           this.dirty = true;
           break;
         case "decodeFd":

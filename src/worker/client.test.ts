@@ -297,3 +297,31 @@ it("creates capture views once per buffer size and reuses them across frames and
     createViews.mockRestore();
   }
 });
+
+it("propagates technical fields without changing full capture transport or render size", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const rom = new Uint8Array(16384);
+  rom[0] = 0x76;
+  const remote = new WorkerMachine({ rom });
+  const direct = createMachine({ rom });
+  try {
+    expect(remote.showTechnicalFields).toBe(true);
+    for (const visible of [false, true]) {
+      remote.setShowTechnicalFields(visible);
+      direct.setShowTechnicalFields(visible);
+      expect(remote.showTechnicalFields).toBe(visible);
+      remote.advanceFrame();
+      direct.advanceFrame();
+      await remote.inspectMemory(0, 0);
+      const acknowledged = await remote.pauseExecution();
+      expect(acknowledged.showTechnicalFields).toBe(visible);
+      expect(remote.width).toBe(448);
+      expect(remote.height).toBe(320);
+      const target = new Uint8ClampedArray(448 * 320 * 4);
+      expect(remote.renderFrame(false, target)).toBe(target);
+      expect(target).toEqual(direct.renderFrame(false));
+    }
+  } finally {
+    remote.dispose();
+  }
+});

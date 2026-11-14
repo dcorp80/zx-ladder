@@ -49,6 +49,8 @@ export interface CapturePlanes {
 }
 export interface RasterVideo extends Device {
   extendedMode?: boolean;
+  showTechnicalFields?: boolean;
+  setReadSuppressionAllowed?(allowed: boolean): void;
   readonly hPositions: number[];
   readonly vPositions: number[];
   readonly advanceX: number;
@@ -79,6 +81,44 @@ export class TimedVideo implements RasterVideo {
   readonly pixelAddresses: number[];
   readonly attributeAddresses: number[];
   readonly masks: number[];
+  private technicalFields = true;
+  private readSuppressionAllowed = true;
+  private readonly allReadGroups: Uint8Array;
+  private readonly normalReadGroups: Uint8Array;
+  private readonly extendedReadGroups: Uint8Array;
+  private activeReadGroups: Uint8Array;
+  private readGroup = true;
+  get showTechnicalFields(): boolean {
+    return this.technicalFields;
+  }
+  set showTechnicalFields(enabled: boolean) {
+    this.technicalFields = enabled;
+    this.selectReadGroups();
+    this.renderDirty = true;
+  }
+  setReadSuppressionAllowed(allowed: boolean): void {
+    this.readSuppressionAllowed = allowed;
+    this.selectReadGroups();
+  }
+  private selectReadGroups(): void {
+    // Keep full collection's fetch unconditional, and leave custom overrides
+    // intact when selecting the compact path at configuration changes.
+    if (this.technicalFields || !this.readSuppressionAllowed) {
+      if (this.fetch === this.fetchVisible)
+        this.fetch = TimedVideo.prototype.fetch;
+    } else if (this.fetch === TimedVideo.prototype.fetch) {
+      this.fetch = this.fetchVisible;
+    }
+    this.activeReadGroups =
+      this.technicalFields || !this.readSuppressionAllowed
+        ? this.allReadGroups
+        : this.extended
+          ? this.extendedReadGroups
+          : this.normalReadGroups;
+    // Resume reads immediately when restoring the generic path. Otherwise the
+    // next capture boundary selects eligibility for the new configuration.
+    this.readGroup = true;
+  }
   private extended = false;
   get extendedMode(): boolean {
     return this.extended;
@@ -89,6 +129,7 @@ export class TimedVideo implements RasterVideo {
     this.activeAttributes = enabled
       ? this.extendedAttributes
       : this.attributeAddresses;
+    this.selectReadGroups();
   }
   readonly io: readonly IoClaim[] = [
     {
@@ -130,6 +171,20 @@ export class TimedVideo implements RasterVideo {
     this.activePixels = this.pixelAddresses;
     this.activeAttributes = this.attributeAddresses;
     this.masks = createRasterMasks(preset);
+    this.allReadGroups = new Uint8Array(symbols).fill(1);
+    this.normalReadGroups = new Uint8Array(symbols);
+    this.extendedReadGroups = new Uint8Array(symbols);
+    for (let group = 0; group < symbols; group++) {
+      // Capture runs before this group's fetches. Its latches are consumed by
+      // the following symbol; combined border is delayed by those eight slots.
+      const next = ((group + 1) % symbols) * 8;
+      for (let bit = 0; bit < 8; bit++) {
+        const mask = this.masks[next + bit];
+        if (mask === 0) this.normalReadGroups[group] = 1;
+        if ((mask & 6) === 0) this.extendedReadGroups[group] = 1;
+      }
+    }
+    this.activeReadGroups = this.allReadGroups;
     const planes = (): CapturePlanes => ({
       events: createCaptureEvents(pixelsPerFrame),
       extended: new Array<number>(symbols).fill(0),
@@ -204,6 +259,7 @@ export class TimedVideo implements RasterVideo {
     return this.front;
   }
   captureSymbol(index: number, flash: number): void {
+    this.readGroup = !!this.activeReadGroups[index];
     const events = this.back.events;
     const mode = Number(this.extendedMode);
     if (events) {
@@ -223,6 +279,20 @@ export class TimedVideo implements RasterVideo {
       this.pixelFetch = bus.readMemory(this.activePixels[symbolIndex]);
     else
       this.attributeFetch = bus.readMemory(this.activeAttributes[symbolIndex]);
+    this.nextFetchIsPixel = !this.nextFetchIsPixel;
+  }
+  private fetchVisible(
+    bus: Pick<DeviceBus, "readMemory">,
+    symbolIndex: number,
+  ): void {
+    if (this.readGroup) {
+      if (this.nextFetchIsPixel)
+        this.pixelFetch = bus.readMemory(this.activePixels[symbolIndex]);
+      else
+        this.attributeFetch = bus.readMemory(
+          this.activeAttributes[symbolIndex],
+        );
+    }
     this.nextFetchIsPixel = !this.nextFetchIsPixel;
   }
   cpuAccess(): void {
@@ -303,7 +373,13 @@ export class TimedVideo implements RasterVideo {
     this.rgba ??= new Uint8ClampedArray(this.preset.pixelsPerFrame * 4);
     const rgba = this.rgba;
     if (!this.renderDirty && showBorder === this.renderedBorder) return rgba;
-    renderCapturedFrame(this.front, this.masks, rgba, showBorder);
+    renderCapturedFrame(
+      this.front,
+      this.masks,
+      rgba,
+      this.technicalFields ? showBorder : true,
+      this.technicalFields,
+    );
     this.renderDirty = false;
     this.renderedBorder = showBorder;
     return rgba;

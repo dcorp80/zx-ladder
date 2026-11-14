@@ -33,6 +33,7 @@ export type Command =
   | {
       type:
         | "border"
+        | "technicalFields"
         | "extendedMode"
         | "turbo"
         | "decodeFd"
@@ -79,6 +80,7 @@ export interface MachineState {
   pc: number;
   cpu7: boolean;
   extendedMode?: boolean;
+  showTechnicalFields: boolean;
   cpuLoad: number | null;
   memoryMapping: MemoryMapping;
   tape: string;

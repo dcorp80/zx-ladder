@@ -44,6 +44,7 @@ export interface MachineOptions {
   videoPreset?: VideoPreset;
   devices?: readonly Device[];
   videoFactory?: (videoPreset: VideoPreset) => RasterVideo;
+  showTechnicalFields?: boolean;
 }
 
 export class Machine implements ClockContext {
@@ -178,6 +179,22 @@ export class Machine implements ClockContext {
   private readonly extraDevices: readonly Device[];
   private readonly defaultVideoFactory: boolean;
   private readonly videoFactory: (preset: VideoPreset) => RasterVideo;
+  private technicalFields: boolean;
+  get showTechnicalFields(): boolean {
+    return this.technicalFields;
+  }
+  setShowTechnicalFields(enabled: boolean): void {
+    this.technicalFields = enabled;
+    this.video.showTechnicalFields = enabled;
+  }
+  private configureVideo(video: RasterVideo): void {
+    video.showTechnicalFields = this.technicalFields;
+    // Injected devices can observe reads or alter capture timing. Keep their
+    // generic scheduling and read side effects even in the compact display.
+    video.setReadSuppressionAllowed?.(
+      this.defaultVideoFactory && this.extraDevices.length === 0,
+    );
+  }
   private clocks: {
     divider: number;
     remaining: number;
@@ -192,6 +209,7 @@ export class Machine implements ClockContext {
     this.defaultVideoFactory = options.videoFactory === undefined;
     this.videoFactory =
       options.videoFactory ?? ((preset) => new TimedVideo(preset));
+    this.technicalFields = options.showTechnicalFields ?? true;
     this.turbo = options.cpu7 ?? false;
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
@@ -233,6 +251,7 @@ export class Machine implements ClockContext {
       () => this.elapsedTicks + this.feWriteDelay,
     );
     this.video = this.videoFactory(this.videoPreset);
+    this.configureVideo(this.video);
     this.updateInterruptPosition();
     this.bus = new DeviceBus([
       this.memory,
@@ -266,6 +285,7 @@ export class Machine implements ClockContext {
     validateVideoPreset(preset);
     const video = this.videoFactory(preset);
     video.extendedMode = this.video.extendedMode;
+    this.configureVideo(video);
     const bus = new DeviceBus([
       this.memory,
       this.disk,
@@ -627,6 +647,11 @@ export class Machine implements ClockContext {
         } else if (this.elapsedTicks === this.nextAudioFlush) this.flushAudio();
       }
       return this.frameCount - framesBefore;
+    } catch (cause) {
+      // Retrying a partial slot can shift the retained capture-clock phase.
+      // Resume full reads until replacing/rephasing the video device.
+      video.setReadSuppressionAllowed?.(false);
+      throw cause;
     } finally {
       // Preserve the countdown even if another phase of the slot throws.
       if (symbolClock) symbolClock.remaining = symbolClockRemaining;
