@@ -226,7 +226,7 @@ export const captureByteLength = (slots: number) =>
   slots + (slots / 8) * 7 + 34;
 /** Views are retained with their backing buffer; refresh scalar metadata after copying a frame. */
 export interface CaptureViews extends CapturePlanes {
-  refresh(): void;
+  refresh(length?: number): void;
 }
 export function captureViews(
   bytes: Uint8ClampedArray,

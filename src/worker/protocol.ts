@@ -96,6 +96,8 @@ export type FromWorker =
       bytes: Uint8ClampedArray;
       /** bytes holds packed capture planes when true; otherwise RGBA. */
       raw?: boolean;
+      /** Variable-length active planes/events rather than the legacy layout. */
+      compact?: boolean;
       state: MachineState;
     }
   | {

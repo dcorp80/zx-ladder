@@ -1,5 +1,10 @@
 import { PCM_BLOCK_FRAMES } from "../audio/mixer";
-import { captureByteLength, copyCapture } from "../devices/frameRenderer";
+import {
+  compactCaptureByteLength,
+  compactCaptureCapacity,
+  compactCaptureMinimum,
+  copyCompactCapture,
+} from "../devices/compactCapture";
 import { KEY_ROWS } from "../devices/keyboard";
 import type { VideoPreset } from "../devices/videoPresets";
 import { createMachine, type Machine } from "../machine/machine";
@@ -47,7 +52,7 @@ export class WorkerEngine {
   private frameBytes(): number {
     if (!this.machine) throw new Error("Worker machine is not initialized");
     const slots = this.machine.timing.pixelsPerFrame;
-    return this.rawFrames ? captureByteLength(slots) : slots * 4;
+    return this.rawFrames ? compactCaptureCapacity(slots) : slots * 4;
   }
   private audio = false;
   private fps: number | null = null;
@@ -107,15 +112,29 @@ export class WorkerEngine {
       this.frameBuffer &&
       (this.dirty || m.frameCount !== this.lastFrame)
     ) {
-      const bytes = this.frameBuffer;
+      let bytes = this.frameBuffer;
+      if (this.rawFrames) {
+        const capture = m.video.rawCompleted ?? m.video.completed;
+        const length = compactCaptureByteLength(capture);
+        if (bytes.length < length)
+          bytes = new Uint8ClampedArray(
+            Math.max(length, Math.ceil(bytes.length * 1.5)),
+          );
+        bytes = bytes.subarray(0, length);
+        copyCompactCapture(capture, bytes);
+      } else bytes.set(m.renderFrame(this.border));
       this.frameBuffer = undefined;
-      if (this.rawFrames)
-        copyCapture(m.video.rawCompleted ?? m.video.completed, bytes);
-      else bytes.set(m.renderFrame(this.border));
       this.lastFrame = m.frameCount;
       this.dirty = false;
       this.send(
-        { type: "frame", epoch: this.epoch, bytes, raw: this.rawFrames, state },
+        {
+          type: "frame",
+          epoch: this.epoch,
+          bytes,
+          raw: this.rawFrames,
+          compact: this.rawFrames,
+          state,
+        },
         [bytes.buffer],
       );
     } else this.send({ type: "state", epoch: this.epoch, state });
@@ -205,10 +224,14 @@ export class WorkerEngine {
         // One display buffer in flight. A preset change may change its size.
         if (!this.machine) return;
         const length = this.frameBytes();
-        this.frameBuffer =
-          message.bytes.length === length
-            ? (message.bytes as Uint8ClampedArray)
-            : new Uint8ClampedArray(length);
+        this.frameBuffer = (
+          this.rawFrames
+            ? message.bytes.buffer.byteLength >=
+              compactCaptureMinimum(this.machine.timing.pixelsPerFrame)
+            : message.bytes.buffer.byteLength === length
+        )
+          ? new Uint8ClampedArray(message.bytes.buffer)
+          : new Uint8ClampedArray(length);
         if (!this.running) this.update(true);
       } else if (this.audioBuffers.length < 32)
         this.audioBuffers.push(message.bytes as Float32Array);

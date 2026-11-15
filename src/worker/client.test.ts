@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import * as frameRenderer from "../devices/frameRenderer";
+import * as compactCapture from "../devices/compactCapture";
 import { LVIV_VIDEO_PRESET } from "../devices/videoPresets";
 import { createMachine } from "../machine/machine";
 import { WorkerMachine } from "./client";
@@ -275,7 +275,7 @@ it("expands transferred captures directly into presentation storage across borde
 
 it("creates capture views once per buffer size and reuses them across frames and repaints", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);
-  const createViews = vi.spyOn(frameRenderer, "captureViews");
+  const createViews = vi.spyOn(compactCapture, "compactCaptureViews");
   const machine = new WorkerMachine({ rom: new Uint8Array(16384).fill(0x76) });
   try {
     for (let i = 0; i < 3; i++) {
@@ -298,7 +298,7 @@ it("creates capture views once per buffer size and reuses them across frames and
   }
 });
 
-it("propagates technical fields without changing full capture transport or render size", async () => {
+it("propagates technical fields while retaining full raster geometry", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);
   const rom = new Uint8Array(16384);
   rom[0] = 0x76;

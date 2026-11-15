@@ -434,6 +434,11 @@ views and output buffers are reused. Mode histories grow when needed and retain
 their storage across frames. Without Worker support, the synchronous adapter
 remains available.
 
+Worker frame packets contain only the pixel/attribute planes and active event
+records, with dense data retained when needed. Transfer and receive buffers
+start small, grow for larger packets and reuse their capacity. The packet view
+and receive copy cover only used bytes; machine capture timing stays unchanged.
+
 The default eight-slot video clock keeps its countdown local to each execution
 chunk; custom clock hooks retain the generic scheduler. Pixel and attribute
 address tables switch when extended mode changes, preserving fetch order and

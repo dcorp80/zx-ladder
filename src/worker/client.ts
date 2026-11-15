@@ -1,6 +1,10 @@
 import type { SoundSettings, StereoSink } from "../audio/mixer";
 import type { DiskState } from "../devices/betaDisk";
 import {
+  compactCaptureMinimum,
+  compactCaptureViews,
+} from "../devices/compactCapture";
+import {
   type CaptureViews,
   captureByteLength,
   captureViews,
@@ -124,6 +128,7 @@ export class WorkerMachine implements MachineLike {
   private border = true;
   private rgba: Uint8ClampedArray;
   private capture?: Uint8ClampedArray;
+  private captureCompact = false;
   private capturedPlanes?: CaptureViews;
   private masks?: number[];
   private readonly visibility = () => {
@@ -284,23 +289,38 @@ export class WorkerMachine implements MachineLike {
       try {
         if (
           message.epoch !== this.epoch ||
-          message.bytes.length !==
-            (message.raw
-              ? captureByteLength(this.timing.pixelsPerFrame)
-              : this.rgba.length)
+          (message.compact && !message.raw) ||
+          (message.raw && message.compact
+            ? message.bytes.length <
+              compactCaptureMinimum(this.timing.pixelsPerFrame)
+            : message.bytes.length !==
+              (message.raw
+                ? captureByteLength(this.timing.pixelsPerFrame)
+                : this.rgba.length))
         )
           return;
         presented = true;
         if (message.raw) {
-          if (this.capture?.length !== message.bytes.length) {
-            this.capture = new Uint8ClampedArray(message.bytes.length);
-            this.capturedPlanes = captureViews(
-              this.capture,
-              this.timing.pixelsPerFrame,
+          const compact = !!message.compact;
+          if (
+            !this.capture ||
+            this.captureCompact !== compact ||
+            (compact
+              ? this.capture.length < message.bytes.length
+              : this.capture.length !== message.bytes.length)
+          ) {
+            this.capture = new Uint8ClampedArray(
+              compact ? message.bytes.buffer.byteLength : message.bytes.length,
             );
+            this.capturedPlanes = (
+              compact ? compactCaptureViews : captureViews
+            )(this.capture, this.timing.pixelsPerFrame);
+            this.captureCompact = compact;
           }
           this.capture.set(message.bytes);
-          this.capturedPlanes?.refresh();
+          this.capturedPlanes?.refresh(
+            compact ? message.bytes.length : undefined,
+          );
         } else {
           this.capture = undefined;
           this.capturedPlanes = undefined;

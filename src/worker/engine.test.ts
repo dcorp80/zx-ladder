@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
+  compactCaptureCapacity,
+  compactCaptureViews,
+} from "../devices/compactCapture";
+import {
   captureByteLength,
-  captureViews,
   createRasterMasks,
   renderCapturedFrame,
 } from "../devices/frameRenderer";
@@ -66,14 +69,19 @@ it.each([false, true])(
   "matches synchronous execution and raster through transferable buffers (raw=%s)",
   (raw) => {
     const h = harness(raw);
-    const rgba = (bytes: Uint8ClampedArray) =>
-      raw
-        ? renderCapturedFrame(
-            captureViews(bytes, PENTAGON_VIDEO_PRESET.pixelsPerFrame),
-            createRasterMasks(PENTAGON_VIDEO_PRESET),
-            new Uint8ClampedArray(PENTAGON_VIDEO_PRESET.pixelsPerFrame * 4),
-          )
-        : bytes;
+    const rgba = (bytes: Uint8ClampedArray) => {
+      if (!raw) return bytes;
+      const views = compactCaptureViews(
+        bytes,
+        PENTAGON_VIDEO_PRESET.pixelsPerFrame,
+      );
+      views.refresh();
+      return renderCapturedFrame(
+        views,
+        createRasterMasks(PENTAGON_VIDEO_PRESET),
+        new Uint8ClampedArray(PENTAGON_VIDEO_PRESET.pixelsPerFrame * 4),
+      );
+    };
     const direct = createMachine({ rom });
     try {
       direct.advanceFrame();
@@ -134,6 +142,54 @@ it("keeps one video packet in flight and returns the latest paused frame after r
   }
 });
 
+it("grows compact frame buffers for event-heavy frames and reuses their capacity for quiet frames", () => {
+  const h = harness(true);
+  const firmware = new Uint8Array(16384);
+  // Emit 512 border changes, then HALT. The following frame has no FE events.
+  firmware.set([
+    0x01, 0, 2, 0x16, 0, 0x7a, 0xee, 7, 0x57, 0xd3, 0xfe, 0x0b, 0x78, 0xb1,
+    0xc2, 5, 0, 0x76,
+  ]);
+  try {
+    h.send({
+      type: "init",
+      rom: firmware,
+      preset: PENTAGON_VIDEO_PRESET,
+      turbo: false,
+      rawFrames: true,
+      lateInt: false,
+    });
+    h.send({ type: "step" });
+    const first = h.messages.findLast((m) => m.type === "frame") as Extract<
+      FromWorker,
+      { type: "frame" }
+    >;
+    const capacity = first.bytes.buffer.byteLength;
+    expect(capacity).toBeGreaterThan(
+      compactCaptureCapacity(PENTAGON_VIDEO_PRESET.pixelsPerFrame),
+    );
+    expect(first.bytes.length).toBeLessThan(capacity);
+    h.engine.receive(
+      structuredClone(
+        { recycle: "frame" as const, bytes: first.bytes, presented: true },
+        { transfer: [first.bytes.buffer] },
+      ),
+    );
+    expect(first.bytes.byteLength).toBe(0);
+    h.send({ type: "step" });
+    const quiet = h.messages.findLast((m) => m.type === "frame") as Extract<
+      FromWorker,
+      { type: "frame" }
+    >;
+    expect(quiet.bytes.length).toBe(
+      44 + PENTAGON_VIDEO_PRESET.pixelsPerFrame / 4,
+    );
+    expect(quiet.bytes.buffer.byteLength).toBe(capacity);
+  } finally {
+    h.engine.dispose();
+  }
+});
+
 it.each([false, true])(
   "reports technical fields while retaining full raster packets (raw=%s)",
   (raw) => {
@@ -147,11 +203,18 @@ it.each([false, true])(
         { type: "frame" }
       >;
       expect(frame.state.showTechnicalFields).toBe(false);
-      expect(frame.bytes.length).toBe(
-        raw
-          ? captureByteLength(PENTAGON_VIDEO_PRESET.pixelsPerFrame)
-          : PENTAGON_VIDEO_PRESET.pixelsPerFrame * 4,
-      );
+      if (raw) {
+        expect(frame.compact).toBe(true);
+        expect(frame.bytes.length).toBeLessThan(
+          compactCaptureCapacity(PENTAGON_VIDEO_PRESET.pixelsPerFrame),
+        );
+        expect(frame.bytes.buffer.byteLength).toBeLessThan(
+          captureByteLength(PENTAGON_VIDEO_PRESET.pixelsPerFrame) / 6,
+        );
+      } else
+        expect(frame.bytes.length).toBe(
+          PENTAGON_VIDEO_PRESET.pixelsPerFrame * 4,
+        );
       expect(
         h.send({ type: "technicalFields", value: true }, 2).state
           ?.showTechnicalFields,
@@ -358,8 +421,9 @@ it("defers host video changes to the next frame while running", () => {
     expect(state?.extendedMode).toBe(true);
     expect(state?.frameCount).toBeGreaterThan(1);
     const frame = h.messages.findLast((m) => m.type === "frame");
-    expect(frame?.type === "frame" && frame.bytes.length).toBe(
-      captureByteLength(LVIV_VIDEO_PRESET.pixelsPerFrame),
+    expect(frame?.type === "frame" && frame.compact).toBe(true);
+    expect(frame?.type === "frame" && frame.bytes.length).toBeLessThan(
+      compactCaptureCapacity(LVIV_VIDEO_PRESET.pixelsPerFrame),
     );
     h.send({ type: "run", value: false });
   } finally {
