@@ -1,6 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import * as compactCapture from "../devices/compactCapture";
-import { LVIV_VIDEO_PRESET } from "../devices/videoPresets";
+import { createRasterMasks } from "../devices/frameRenderer";
+import {
+  LVIV_VIDEO_PRESET,
+  PENTAGON_VIDEO_PRESET,
+} from "../devices/videoPresets";
+import { Counter } from "../machine/counters";
 import { createMachine } from "../machine/machine";
 import { WorkerMachine } from "./client";
 import { WorkerEngine } from "./engine";
@@ -325,3 +330,59 @@ it("propagates technical fields while retaining full raster geometry", async () 
     remote.dispose();
   }
 });
+
+it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
+  "retains the completed $id FLASH phase through state updates and repaints",
+  async (preset) => {
+    vi.stubGlobal("Worker", LoopbackWorker);
+    const rom = new Uint8Array(16384);
+    // A flashing blue ink/red paper symbol, then HALT without enabling INT.
+    rom.set([0x3e, 0x80, 0x32, 0, 0x40, 0x3e, 0x91, 0x32, 0, 0x58, 0x76]);
+    const remote = new WorkerMachine({ rom, videoPreset: preset });
+    const onError = vi.fn();
+    remote.createLoop({ onError });
+    const target = new Uint8ClampedArray(preset.pixelsPerFrame * 4);
+    const paper = createRasterMasks(preset).indexOf(0);
+    const pixel = () => Array.from(target.subarray(paper * 4, paper * 4 + 4));
+    try {
+      for (let frame = 0; frame < 16; frame++) {
+        remote.advanceFrame();
+        await remote.inspectMemory(0, 0);
+      }
+      expect(remote.frameCount).toBe(16);
+      expect(remote.counters[Counter.flash]).toBe(16);
+      remote.renderFrame(true, target);
+      // The live counter changed after this frame's visible area was captured.
+      expect(pixel()).toEqual([0, 0, 215, 255]);
+      const completed = new Uint8ClampedArray(target);
+      const version = remote.presentationVersion;
+
+      await remote.stepPixels(preset.pixelsPerFrame - 1);
+      await remote.inspectMemory(0, 0);
+      expect(remote.counters[Counter.flash]).toBe(17);
+      expect(remote.frameCount).toBe(16);
+      expect(remote.presentationVersion).toBe(version);
+      remote.renderFrame(true, target);
+      expect(target).toEqual(completed);
+
+      for (const technical of [false, true]) {
+        remote.setShowTechnicalFields(technical);
+        await remote.inspectMemory(0, 0);
+        for (const border of [false, true]) {
+          remote.renderFrame(border, target);
+          expect(pixel()).toEqual([0, 0, 215, 255]);
+        }
+      }
+      await remote.stepPixels(1);
+      await remote.inspectMemory(0, 0);
+      expect(remote.frameCount).toBe(17);
+      expect(remote.counters[Counter.flash]).toBe(17);
+      expect(remote.presentationVersion).toBeGreaterThan(version);
+      remote.renderFrame(true, target);
+      expect(pixel()).toEqual([215, 0, 0, 255]);
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      remote.dispose();
+    }
+  },
+);

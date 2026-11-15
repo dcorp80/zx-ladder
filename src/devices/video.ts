@@ -37,6 +37,8 @@ export interface InterruptInterval {
 export type CaptureArray = number[] | Uint8Array;
 export interface CapturePlanes {
   events?: CaptureEvents;
+  /** Defined only for raw attributes; absent means FLASH is already resolved. */
+  flashPhase?: 0 | 1;
   /** Dense compatibility/overflow storage; events own the ordinary capture. */
   extended: CaptureArray;
   pixels: CaptureArray;
@@ -156,8 +158,12 @@ export class TimedVideo implements RasterVideo {
   private renderDirty = true;
   private interruptActive = false;
   private renderedBorder = true;
+  private readonly flashPostprocessing: boolean;
 
-  constructor(readonly preset: VideoPreset) {
+  constructor(
+    readonly preset: VideoPreset,
+    options: { flashPostprocessing?: boolean } = {},
+  ) {
     const { width, height, pixelsPerFrame } = preset;
     const symbols = pixelsPerFrame / 8;
     this.advanceX =
@@ -187,6 +193,7 @@ export class TimedVideo implements RasterVideo {
     this.activeReadGroups = this.allReadGroups;
     const planes = (): CapturePlanes => ({
       events: createCaptureEvents(pixelsPerFrame),
+      flashPhase: undefined,
       extended: new Array<number>(symbols).fill(0),
       pixels: new Array<number>(symbols).fill(0),
       attributes: new Array<number>(symbols).fill(0),
@@ -233,6 +240,16 @@ export class TimedVideo implements RasterVideo {
         }
       }
     }
+    // A single phase is sufficient only when the FLASH edge follows every
+    // visible symbol. Custom timing inside the display keeps resolved capture.
+    let lastVisible = pixelsPerFrame - 1;
+    while (lastVisible >= 0 && this.masks[lastVisible] & 6) lastVisible--;
+    const flashSymbol = this.vPositions.findIndex(
+      (v, index) =>
+        v === preset.flashLine && (index * 8) % width === this.advanceX,
+    );
+    this.flashPostprocessing =
+      !!options.flashPostprocessing && flashSymbol * 8 > lastVisible;
     this.clock = [
       {
         divider: 8,
@@ -262,17 +279,22 @@ export class TimedVideo implements RasterVideo {
     this.readGroup = !!this.activeReadGroups[index];
     const events = this.back.events;
     const mode = Number(this.extendedMode);
+    if (index === 0) {
+      this.back.flashPhase = this.flashPostprocessing
+        ? flash & (1 << this.preset.flashBit)
+          ? 1
+          : 0
+        : undefined;
+      if (events) events.initialExtended = mode;
+    }
     if (events) {
-      if (index === 0) events.initialExtended = mode;
       const previous = events.initialExtended ^ (events.modeCount & 1);
       if (mode !== previous) events.modeTimes[events.modeCount++] = index;
     }
     this.back.pixels[index] = this.pixelFetch & 255;
-    this.back.attributes[index] = captureAttribute(
-      this.attributeFetch,
-      flash,
-      this.preset.flashBit,
-    );
+    this.back.attributes[index] = this.flashPostprocessing
+      ? this.attributeFetch & 255
+      : captureAttribute(this.attributeFetch, flash, this.preset.flashBit);
   }
   fetch(bus: Pick<DeviceBus, "readMemory">, symbolIndex: number): void {
     if (this.nextFetchIsPixel)
@@ -354,6 +376,7 @@ export class TimedVideo implements RasterVideo {
     const old = this.front;
     this.front = this.back;
     this.back = old;
+    this.back.flashPhase = undefined;
     this.back.interruptCount = 0;
     const events = this.back.events;
     if (events) {

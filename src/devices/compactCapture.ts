@@ -6,6 +6,9 @@ const HEADER = 44;
 const MAGIC = 0x31434c5a; // ZLC1, little endian.
 const FE_EVENTS = 1;
 const MODE_EVENTS = 2;
+const RAW_ATTRIBUTES = 4;
+const FLASH_PHASE = 8;
+const KNOWN_FLAGS = FE_EVENTS | MODE_EVENTS | RAW_ATTRIBUTES | FLASH_PHASE;
 
 /** Common frames need two symbol planes and small event histories. */
 export const compactCaptureMinimum = (slots: number): number =>
@@ -42,7 +45,11 @@ export function copyCompactCapture(
   data.setUint32(4, symbols * 8, true);
   data.setUint32(8, feEvents ? e.feCount : 0, true);
   data.setUint32(12, modeEvents ? e.modeCount : 0, true);
-  bytes[16] = (feEvents ? FE_EVENTS : 0) | (modeEvents ? MODE_EVENTS : 0);
+  bytes[16] =
+    (feEvents ? FE_EVENTS : 0) |
+    (modeEvents ? MODE_EVENTS : 0) |
+    (frame.flashPhase !== undefined ? RAW_ATTRIBUTES : 0) |
+    (frame.flashPhase === 1 ? FLASH_PHASE : 0);
   bytes[17] = e?.initialFe ?? 0;
   bytes[18] = e?.initialExtended ?? 0;
   if (e && !e.intComplex) {
@@ -107,6 +114,7 @@ export function compactCaptureViews(
     modeEvents: true,
   };
   const frame: CompactCaptureViews = {
+    flashPhase: undefined,
     pixels: view(HEADER, symbols),
     attributes: view(HEADER + symbols, symbols),
     extended: empty,
@@ -123,7 +131,8 @@ export function compactCaptureViews(
         length > bytes.length ||
         data.getUint32(0, true) !== MAGIC ||
         data.getUint32(4, true) !== slots ||
-        bytes[16] & ~(FE_EVENTS | MODE_EVENTS)
+        bytes[16] & ~KNOWN_FLAGS ||
+        (bytes[16] & FLASH_PHASE && !(bytes[16] & RAW_ATTRIBUTES))
       )
         throw new RangeError("Invalid compact capture header");
       const flags = bytes[16];
@@ -146,6 +155,8 @@ export function compactCaptureViews(
       )
         throw new RangeError("Invalid compact capture length or event count");
       events.modeEvents = modeEvents;
+      this.flashPhase =
+        flags & RAW_ATTRIBUTES ? (flags & FLASH_PHASE ? 1 : 0) : undefined;
       events.modeCount = modeCount;
       events.initialExtended = bytes[18];
       let offset = HEADER + symbols * 2;

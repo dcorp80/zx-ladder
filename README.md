@@ -107,8 +107,10 @@ sync and blanking; the visible-only view is 370 × 304 for Pentagon and
 352 × 288 for Lviv. Both use the same uncontended 48K machine and 7 MHz
 memory-slot clock. Video presets define raster counters, signal windows,
 INT timing, and FLASH advancement/bit selection independently of that clock.
-The machine captures pixel and attribute latches as execution progresses,
-including the FLASH phase at capture time. Border colour is reconstructed from
+The machine captures pixel and attribute latches as execution progresses.
+Normal timed capture retains raw attributes with the completed frame's FLASH
+phase; rendering applies the inversion. Custom timing that changes FLASH within
+visible content retains capture-time resolution. Border colour is reconstructed from
 timed FE events. Pixel/attribute latches are captured at the opening of each
 eight-slot group across the full raster, including blanking and border regions.
 Host extended-mode and INT-timing changes apply at the next frame boundary while

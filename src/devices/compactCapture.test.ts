@@ -171,7 +171,54 @@ it("rejects truncated, wrong-geometry and inconsistent compact packets", () => {
     expect(() => views.refresh(length)).toThrow(RangeError);
     data.setUint32(offset, original, true);
   }
+  const flags = bytes[16];
+  for (const invalid of [flags | 8, flags | 16]) {
+    bytes[16] = invalid;
+    expect(() => views.refresh(length)).toThrow(RangeError);
+  }
+  bytes[16] = flags;
   expect(() =>
     copyCompactCapture(frame, new Uint8ClampedArray(length - 1)),
   ).toThrow(RangeError);
+});
+
+it("retains raw FLASH phase and clears it for resolved packets across reused formats", () => {
+  const slots = 24;
+  const source = new Uint8ClampedArray(compactCaptureCapacity(slots)).fill(231);
+  const retained = new Uint8ClampedArray(source.length).fill(173);
+  const decoded = compactCaptureViews(retained, slots);
+  const masks = new Uint8Array(slots);
+  const actual = new Uint8ClampedArray(slots * 4);
+  const expected = new Uint8ClampedArray(slots * 4);
+  for (const kind of ["sparse", "dense", "legacy", "sparse"]) {
+    const e = createCaptureEvents(slots);
+    e.initialExtended = 1;
+    e.feDense = kind === "dense";
+    e.modeCount = 1;
+    e.modeTimes[0] = 2;
+    const frame: CapturePlanes = {
+      pixels: [0x80, 0x55, 0xf0],
+      attributes: [0x8a, 0x8a, 0x8a], // FLASH, red ink, blue paper.
+      extended: [0, 1, 0],
+      border: new Uint8Array(slots).fill(4),
+      events: kind === "legacy" ? undefined : e,
+      interruptCount: 0,
+      interrupts: [],
+    };
+    const length = compactCaptureByteLength(frame);
+    for (const flashPhase of [0, 1, undefined] as const) {
+      frame.flashPhase = flashPhase;
+      expect(compactCaptureByteLength(frame)).toBe(length);
+      copyCompactCapture(frame, source);
+      retained.set(source.subarray(0, length));
+      decoded.refresh(length);
+      expect(decoded.flashPhase).toBe(flashPhase);
+      renderCapturedFrame(decoded, masks, actual, false, false);
+      renderCapturedFrame(frame, masks, expected, false, false);
+      expect(actual).toEqual(expected);
+      expect([...actual.subarray(0, 4)]).toEqual(
+        flashPhase === 0 ? [215, 0, 0, 255] : [0, 0, 215, 255],
+      );
+    }
+  }
 });

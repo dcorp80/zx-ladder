@@ -62,6 +62,7 @@ export function renderCapturedFrame(
     outputViews.set(rgba, words);
   }
   const { pixels, attributes, border, extended, events } = frame;
+  const flashMask = frame.flashPhase === 0 ? 0 : 0x80;
   let modeIndex = 0,
     mode = events?.initialExtended ?? 0;
   let feIndex = 0,
@@ -94,7 +95,7 @@ export function renderCapturedFrame(
         }
       } else {
         const attr = attributes[symbol];
-        const bits = pixels[symbol] ^ (attr & 0x80 ? 255 : 0);
+        const bits = pixels[symbol] ^ (attr & flashMask ? 255 : 0);
         const bright = attr & 64 ? 8 : 0;
         const ink = palette[(attr & 7) | bright];
         const paper = palette[((attr >>> 3) & 7) | bright];
@@ -247,6 +248,7 @@ export function captureViews(
     bytes.byteLength,
   );
   const frame: CaptureViews = {
+    flashPhase: undefined,
     pixels: view(0, symbols),
     attributes: view(symbols, symbols),
     extended: view(symbols * 2, symbols),
@@ -259,11 +261,15 @@ export function captureViews(
     refresh() {
       const feOffset = symbols * 3;
       const modeHeader = slots + symbols * 3 + 28;
+      this.flashPhase =
+        bytes[modeHeader + 1] & 2
+          ? (((bytes[modeHeader + 1] >>> 2) & 1) as 0 | 1)
+          : undefined;
       events.modeEvents = bytes[modeHeader] === 254;
       if (events.modeEvents || bytes[feOffset] === 254) {
         this.events = events;
         if (events.modeEvents) {
-          events.initialExtended = bytes[modeHeader + 1];
+          events.initialExtended = bytes[modeHeader + 1] & 1;
           events.modeCount = metadata.getUint32(modeHeader + 2, true);
           if (events.modeCount > symbols)
             throw new RangeError("Invalid mode event count");
@@ -330,9 +336,11 @@ export function copyCapture(
   const e = frame.events;
 
   const modeHeader = slots + symbols * 3 + 28;
+  bytes[modeHeader + 1] =
+    ((e?.initialExtended ?? 0) & 1) |
+    (frame.flashPhase === undefined ? 0 : 2 | (frame.flashPhase << 2));
   if (e) {
     bytes[modeHeader] = 254;
-    bytes[modeHeader + 1] = e.initialExtended;
     write32(bytes, modeHeader + 2, e.modeCount);
     for (let i = 0; i < e.modeCount; i++)
       write32(bytes, modeHeader + 6 + i * 4, e.modeTimes[i]);

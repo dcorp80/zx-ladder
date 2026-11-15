@@ -208,7 +208,11 @@ export class Machine implements ClockContext {
     this.extraDevices = options.devices ?? [];
     this.defaultVideoFactory = options.videoFactory === undefined;
     this.videoFactory =
-      options.videoFactory ?? ((preset) => new TimedVideo(preset));
+      options.videoFactory ??
+      ((preset) =>
+        new TimedVideo(preset, {
+          flashPostprocessing: this.extraDevices.length === 0,
+        }));
     this.technicalFields = options.showTechnicalFields ?? true;
     this.turbo = options.cpu7 ?? false;
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;

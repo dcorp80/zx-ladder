@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { createCaptureEvents } from "./captureEvents";
 import {
   captureByteLength,
   captureViews,
@@ -12,6 +13,44 @@ import { LVIV_VIDEO_PRESET, PENTAGON_VIDEO_PRESET } from "./videoPresets";
 const BORDER = 1,
   BLANK = 2,
   SYNC = 4;
+
+it("retains frame FLASH phase in fixed-layout packets without changing mode flags", () => {
+  const slots = 16;
+  const events = createCaptureEvents(slots);
+  events.initialExtended = 1;
+  events.modeCount = 1;
+  events.modeTimes[0] = 1;
+  events.initialFe = 4;
+  const frame: CapturePlanes = {
+    pixels: [255, 255],
+    attributes: [0x82, 0x82],
+    extended: [1, 0],
+    border: new Uint8Array(slots).fill(4),
+    events,
+    interrupts: [],
+    interruptCount: 0,
+  };
+  const bytes = new Uint8ClampedArray(captureByteLength(slots));
+  const decoded = captureViews(bytes, slots);
+  const masks = new Uint8Array(slots).fill(BORDER);
+  for (const phase of [undefined, 0, 1, 0, undefined] as const) {
+    frame.flashPhase = phase;
+    copyCapture(frame, bytes);
+    decoded.refresh();
+    expect(decoded.flashPhase).toBe(phase);
+    expect(decoded.events?.initialExtended).toBe(1);
+    const rgba = renderCapturedFrame(
+      decoded,
+      masks,
+      new Uint8ClampedArray(slots * 4),
+    );
+    expect(Array.from(rgba.subarray(0, 4))).toEqual(
+      phase === 0 ? [215, 0, 0, 255] : [0, 0, 0, 255],
+    );
+    // The mode transition restores the green FE border for the second symbol.
+    expect(Array.from(rgba.subarray(8 * 4, 9 * 4))).toEqual([0, 215, 0, 255]);
+  }
+});
 // Frozen pre-extraction scalar renderer: independent output oracle.
 function reference(
   frame: CapturePlanes,

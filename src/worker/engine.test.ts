@@ -12,6 +12,7 @@ import {
   LVIV_VIDEO_PRESET,
   PENTAGON_VIDEO_PRESET,
 } from "../devices/videoPresets";
+import { Counter } from "../machine/counters";
 import { createMachine } from "../machine/machine";
 import { WorkerEngine } from "./engine";
 import type { Command, FromWorker } from "./protocol";
@@ -430,3 +431,87 @@ it("defers host video changes to the next frame while running", () => {
     h.engine.dispose();
   }
 });
+
+it.each([false, true])(
+  "transfers captured FLASH phase across frames 16/17 for both presets (raw=%s)",
+  (raw) => {
+    const firmware = new Uint8Array(16384);
+    firmware.set([0x3e, 0x80, 0x32, 0, 0x40, 0x3e, 0x91, 0x32, 0, 0x58, 0x76]);
+    for (const preset of [PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET]) {
+      const h = harness(raw);
+      const masks = createRasterMasks(preset);
+      const paper = masks.indexOf(0);
+      const target = new Uint8ClampedArray(preset.pixelsPerFrame * 4);
+      const latest = () => {
+        const frame = h.messages.findLast(
+          (message) => message.type === "frame",
+        );
+        if (frame?.type !== "frame") throw new Error("Expected frame");
+        return frame;
+      };
+      const recycle = (frame: ReturnType<typeof latest>) => {
+        h.engine.receive(
+          structuredClone(
+            { recycle: "frame" as const, bytes: frame.bytes, presented: true },
+            { transfer: [frame.bytes.buffer] },
+          ),
+        );
+      };
+      const pixels = (frame: ReturnType<typeof latest>) => {
+        if (!raw) return frame.bytes;
+        const views = compactCaptureViews(frame.bytes, preset.pixelsPerFrame);
+        views.refresh();
+        expect(views.attributes[paper >>> 3]).toBe(0x91);
+        expect(views.flashPhase).toBe(frame.state.frameCount === 16 ? 0 : 1);
+        return renderCapturedFrame(views, masks, target);
+      };
+      try {
+        h.send({
+          type: "init",
+          rom: firmware,
+          preset,
+          turbo: false,
+          rawFrames: raw,
+          lateInt: false,
+        });
+        for (let frame = 1; frame <= 16; frame++) {
+          h.send({ type: "step" });
+          if (frame < 16) recycle(latest());
+        }
+        const before = latest();
+        expect(before.state.frameCount).toBe(16);
+        expect(before.state.counters[Counter.flash]).toBe(16);
+        const rgba = pixels(before);
+        expect(Array.from(rgba.subarray(paper * 4, paper * 4 + 4))).toEqual([
+          0, 0, 215, 255,
+        ]);
+        const count = h.messages.filter(
+          (message) => message.type === "frame",
+        ).length;
+        const partial = h.send({
+          type: "step",
+          pixels: preset.pixelsPerFrame - 1,
+        });
+        expect(partial.state?.counters[Counter.flash]).toBe(17);
+        expect(partial.state?.frameCount).toBe(16);
+        expect(
+          h.messages.filter((message) => message.type === "frame"),
+        ).toHaveLength(count);
+        expect(
+          Array.from(pixels(before).subarray(paper * 4, paper * 4 + 4)),
+        ).toEqual([0, 0, 215, 255]);
+        recycle(before);
+        expect(before.bytes.byteLength).toBe(0);
+        h.send({ type: "step", pixels: 1 });
+        const after = latest();
+        expect(after.state.frameCount).toBe(17);
+        expect(after.state.counters[Counter.flash]).toBe(17);
+        expect(
+          Array.from(pixels(after).subarray(paper * 4, paper * 4 + 4)),
+        ).toEqual([215, 0, 0, 255]);
+      } finally {
+        h.engine.dispose();
+      }
+    }
+  },
+);
