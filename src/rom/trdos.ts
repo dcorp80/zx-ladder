@@ -1,5 +1,5 @@
 import type { Z80Cpu } from "@dcorp80/z80cpu";
-import type { BetaDisk } from "../devices/betaDisk";
+import type { BetaDisk, DiskDrive } from "../devices/betaDisk";
 import type { BankedMemory } from "../devices/memory";
 import { type TrdFile, trdBasic } from "../files/trd";
 export const ROM_REQUIRED = "You need to provide TR-DOS ROM";
@@ -9,6 +9,7 @@ export class TrdosService {
   private base = 0;
   private offset = 0;
   prepareBasic?: TrdFile;
+  prepareDrive: DiskDrive = 0;
   constructor(
     private memory: BankedMemory,
     private disk: BetaDisk,
@@ -34,6 +35,7 @@ export class TrdosService {
     const prog = this.word(0x5c53),
       end = this.word(0x5c65);
     if (prog >= 0x5d3b) {
+      this.selectPreparedDrive();
       this.nextFile(file);
       return;
     }
@@ -50,7 +52,14 @@ export class TrdosService {
     }
     for (let p = prog; p < 0x5d3b; p++) this.memory.write(p, 0);
     this.memory.write(0x5d06, 9);
+    this.selectPreparedDrive();
     this.nextFile(file);
+  }
+  private selectPreparedDrive() {
+    this.disk.selectDrive(this.prepareDrive);
+    this.memory.write(0x5cf6, this.prepareDrive);
+    this.memory.write(0x5d19, this.prepareDrive);
+    this.memory.write(0x5d16, this.disk.system);
   }
   read(address: number, opcode: boolean, cpu: Z80Cpu): number | undefined {
     if (this.program.length && address === this.base + this.offset) {
@@ -69,19 +78,20 @@ export class TrdosService {
       r = { ...state.main };
     let error = 0;
     const command = r.c;
-    if (!this.disk.ready) error = 6;
-    else if (address === 0x3d03) this.basicCommand();
+    // Drive selection must work when the previously selected drive is empty.
+    if (address === 0x3d13 && r.c === 1) {
+      this.disk.selectDrive(r.a & 3);
+      this.memory.write(0x5cf6, r.a & 3);
+      this.memory.write(0x5d16, this.disk.system);
+      if (!this.disk.ready) error = 6;
+    } else if (address === 0x3d03) error = this.basicCommand();
+    else if (!this.disk.ready) error = 6;
     else if (address === 0x3d21) this.initialize();
     else {
       const hl = (r.h << 8) | r.l;
       switch (r.c) {
         case 0:
           this.disk.head = this.disk.track = 0;
-          break;
-        case 1:
-          this.disk.system = (this.disk.system & ~3) | (r.a & 3);
-          this.memory.write(0x5cf6, r.a & 3);
-          if (!this.disk.ready) error = 6;
           break;
         case 2:
           this.disk.head = this.disk.track = Math.floor(
@@ -241,11 +251,12 @@ export class TrdosService {
   }
   private initialize() {
     this.memory.write(0x5d06, 9);
-    this.memory.write(0x5cf6, 0);
+    this.memory.write(0x5cf6, this.disk.drive);
     this.memory.write(0x5cf8, 0);
     this.memory.write(0x5cf9, 0);
-    this.memory.write(0x5d19, 0);
-    this.memory.write(0x5d16, 0x3c);
+    this.memory.write(0x5d19, this.disk.drive);
+    this.disk.system = 0x3c | this.disk.drive;
+    this.memory.write(0x5d16, this.disk.system);
   }
   private findDescriptor() {
     return this.disk.state.catalog.find((f) => {
@@ -302,7 +313,7 @@ export class TrdosService {
     }
     this.nextFile(file);
   }
-  private basicCommand() {
+  private basicCommand(): number {
     const start = this.word(0x5c5d);
     let command = "",
       ended = false;
@@ -326,12 +337,23 @@ export class TrdosService {
       command += tokens[b] ?? String.fromCharCode(b);
     }
     if (!ended) this.required();
+    const selector = command.match(
+      /^\s*(?::?\s*REM\s*:?)?\s*\*\s*"([A-D])"\s*$/i,
+    );
+    if (selector) {
+      const drive = selector[1].toUpperCase().charCodeAt(0) - 65;
+      this.disk.selectDrive(drive);
+      this.memory.write(0x5cf6, drive);
+      this.memory.write(0x5d19, drive);
+      this.memory.write(0x5d16, this.disk.system);
+      return this.disk.ready ? 0 : 6;
+    }
     // BASIC loaders commonly use CODE VAL "25088" to avoid stored numbers.
     // Support literal decimal strings, without evaluating arbitrary expressions.
     const number = '(?:[0-9]+|VAL\\s*"\\s*[0-9]+\\s*")';
     const match = command.match(
       new RegExp(
-        '^\\s*(?::?\\s*REM\\s*:?)?\\s*(LOAD|RUN)\\s*"([^"\\r]{1,8})"\\s*' +
+        '^\\s*(?::?\\s*REM\\s*:?)?\\s*(LOAD|RUN)\\s*"([^"\\r]{1,10})"\\s*' +
           "(CODE(?:\\s*(" +
           number +
           ")(?:\\s*,\\s*(" +
@@ -343,9 +365,24 @@ export class TrdosService {
     const numericValue = (value: string) =>
       Number(value.replace(/^VAL\s*"(.*)"$/i, "$1").trim());
     if (!match) this.required();
+    let name = match[2];
+    const prefix = name.match(/^([A-D]):(.{1,8})$/i);
+    if (prefix) {
+      const drive = prefix[1].toUpperCase().charCodeAt(0) - 65;
+      this.disk.selectDrive(drive);
+      this.memory.write(0x5cf6, drive);
+      this.memory.write(0x5d16, this.disk.system);
+      name = prefix[2];
+    } else {
+      if (name.length > 8) this.required();
+      this.disk.selectDrive(this.memory.read(0x5d19) & 3);
+      this.memory.write(0x5cf6, this.disk.drive);
+      this.memory.write(0x5d16, this.disk.system);
+    }
+    if (!this.disk.ready) return 6;
     const file = this.disk.state.catalog.find(
       (f) =>
-        f.name.toLowerCase() === match[2].toLowerCase() &&
+        f.name.toLowerCase() === name.toLowerCase() &&
         f.ext === (match[3] ? "C" : "B"),
     );
     if (!file) this.required();
@@ -356,5 +393,6 @@ export class TrdosService {
         match[5] === undefined ? file.length : numericValue(match[5]),
       );
     else this.loadBasic(file, match[1].toUpperCase() === "RUN");
+    return 0;
   }
 }

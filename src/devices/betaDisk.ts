@@ -6,6 +6,17 @@ import {
   trdGeometry,
 } from "../files/trd";
 import type { Device, IoClaim } from "../machine/devices";
+export type DiskDrive = 0 | 1;
+
+interface DriveMedia {
+  bytes?: Uint8Array;
+  geometry: TrdGeometry;
+  fileId: string;
+  name: string;
+  dirty: boolean;
+  catalog: TrdFile[];
+}
+
 export interface DiskState {
   id: string;
   name: string;
@@ -18,19 +29,68 @@ export interface DiskState {
 export class BetaDisk implements Device {
   readonly id = "beta-disk";
   readonly io: IoClaim[];
-  bytes?: Uint8Array;
-  geometry: TrdGeometry = { tracks: 80, sides: 2 };
-  fileId = "";
-  name = "";
-  dirty = false;
+  private readonly media: [DriveMedia, DriveMedia] = [
+    this.emptyMedia(),
+    this.emptyMedia(),
+  ];
+  private readonly heads = [0, 0, 0, 0];
+  private emptyMedia(): DriveMedia {
+    return {
+      geometry: { tracks: 80, sides: 2 },
+      fileId: "",
+      name: "",
+      dirty: false,
+      catalog: [],
+    };
+  }
+  private get selected(): DriveMedia | undefined {
+    return this.media[this.drive as DiskDrive];
+  }
+  get bytes(): Uint8Array | undefined {
+    return this.selected?.bytes;
+  }
+  set bytes(bytes: Uint8Array | undefined) {
+    if (!this.selected) throw new Error("Unsupported disk drive.");
+    this.selected.bytes = bytes;
+  }
+  get geometry(): TrdGeometry {
+    return this.selected?.geometry ?? { tracks: 80, sides: 2 };
+  }
+  get fileId(): string {
+    return this.selected?.fileId ?? "";
+  }
+  get name(): string {
+    return this.selected?.name ?? "";
+  }
+  get dirty(): boolean {
+    return this.selected?.dirty ?? false;
+  }
+  set dirty(value: boolean) {
+    if (this.selected) this.selected.dirty = value;
+  }
   romRequired = false;
   dosEnabled = false;
   rom?: number[];
   track = 0;
   sector = 1;
   data = 0;
-  system = 4;
-  head = 0;
+  private systemValue = 0x14;
+  get system(): number {
+    return this.systemValue;
+  }
+  set system(value: number) {
+    if (this.buffer && (value ^ this.systemValue) & 0x13) this.finish(4);
+    this.systemValue = value & 255;
+  }
+  get head(): number {
+    return this.heads[this.drive];
+  }
+  set head(value: number) {
+    this.heads[this.drive] = value;
+  }
+  selectDrive(drive: number): void {
+    this.system = (this.system & ~3) | (drive & 3);
+  }
   status = 0;
   intrq = false;
   private type1 = true;
@@ -39,7 +99,6 @@ export class BetaDisk implements Device {
   private position = 0;
   private writeOffset = -1;
   private multi = false;
-  private catalogCache: TrdFile[] = [];
   get image(): Uint8Array {
     if (!this.bytes) throw new Error("No disk mounted.");
     return this.bytes;
@@ -51,7 +110,7 @@ export class BetaDisk implements Device {
     return this.system & 16 ? 0 : 1;
   }
   get ready() {
-    return this.drive === 0 && !!this.bytes;
+    return this.drive < 2 && !!this.bytes;
   }
   constructor(private readonly ticks: () => number = () => 0) {
     this.io = [0x1f, 0x3f, 0x5f, 0x7f, 0xff].map((lowValue) => ({
@@ -80,41 +139,54 @@ export class BetaDisk implements Device {
     });
   }
   get state(): DiskState {
+    return this.stateFor(this.drive as DiskDrive);
+  }
+  get states(): [DiskState, DiskState] {
+    return [this.stateFor(0), this.stateFor(1)];
+  }
+  stateFor(drive: DiskDrive): DiskState {
+    const media = this.media[drive];
     return {
-      id: this.fileId,
-      name: this.name,
-      dirty: this.dirty,
-      catalog: this.catalogCache,
+      id: media?.fileId ?? "",
+      name: media?.name ?? "",
+      dirty: media?.dirty ?? false,
+      catalog: media?.catalog ?? [],
       romRequired: this.romRequired,
       dosEnabled: this.dosEnabled,
     };
   }
-  mount(bytes: Uint8Array, id: string, name: string) {
-    const geometry = trdGeometry(bytes);
-    const active = this.dosEnabled;
-    this.bytes = bytes.slice();
-    this.geometry = geometry;
-    this.fileId = id;
-    this.name = name;
-    this.dirty = false;
-    this.catalogCache = this.catalog(bytes);
-    this.reset();
-    this.dosEnabled = active;
+  imageFor(drive: DiskDrive): Uint8Array {
+    const bytes = this.media[drive]?.bytes;
+    if (!bytes) throw new Error("No disk mounted.");
+    return bytes;
   }
-  eject() {
-    const active = this.dosEnabled;
-    this.bytes = undefined;
-    this.fileId = this.name = "";
-    this.dirty = false;
-    this.catalogCache = [];
-    this.reset();
-    this.dosEnabled = active;
+  setDirty(drive: DiskDrive, dirty: boolean): void {
+    this.media[drive].dirty = dirty;
+  }
+  mount(bytes: Uint8Array, id: string, name: string, drive: DiskDrive = 0) {
+    const geometry = trdGeometry(bytes);
+    const media = this.media[drive];
+    if (!media) throw new Error("Unsupported disk drive.");
+    if (drive === this.drive && this.buffer) this.finish(4);
+    media.bytes = bytes.slice();
+    media.geometry = geometry;
+    media.fileId = id;
+    media.name = name;
+    media.dirty = false;
+    media.catalog = this.catalog(bytes);
+  }
+  eject(drive: DiskDrive = 0) {
+    const media = this.media[drive];
+    if (!media) throw new Error("Unsupported disk drive.");
+    if (drive === this.drive && this.buffer) this.finish(4);
+    this.media[drive] = this.emptyMedia();
   }
   reset() {
     this.dosEnabled = false;
     this.romRequired = false;
     this.system = 0x14;
-    this.track = this.head = 0;
+    this.track = 0;
+    this.heads.fill(0);
     this.sector = 1;
     this.data = this.status = 0;
     this.intrq = false;
@@ -134,7 +206,8 @@ export class BetaDisk implements Device {
   }
   changed() {
     this.dirty = true;
-    this.catalogCache = this.bytes ? this.catalog(this.bytes) : [];
+    if (this.selected)
+      this.selected.catalog = this.bytes ? this.catalog(this.bytes) : [];
   }
   private finish(error = 0) {
     this.status = error;

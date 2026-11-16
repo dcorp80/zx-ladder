@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import type { AyStereo, SoundSettings, StereoSink } from "../audio/mixer";
 import { SoundOutput } from "../audio/output";
-import type { DiskState } from "../devices/betaDisk";
+import type { DiskDrive, DiskState } from "../devices/betaDisk";
 import type { KempstonInput } from "../devices/kempston";
 import type { KeyboardDevice } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
@@ -61,6 +61,7 @@ export interface MachineLike {
   readonly mouseAccessed?: boolean;
   kempstonInput?(input: KempstonInput): void;
   readonly diskState?: DiskState;
+  readonly diskStates?: readonly [DiskState, DiskState];
   setDosRom?(bytes: Uint8Array | null): void | Promise<void>;
   mountDisk?(
     bytes: Uint8Array,
@@ -68,10 +69,14 @@ export interface MachineLike {
     name: string,
     autoRun?: boolean,
     dirty?: boolean,
+    drive?: DiskDrive,
   ): void | Promise<void>;
-  runDisk?(index: number): void | Promise<void>;
-  ejectDisk?(): void | Promise<void>;
-  exportDisk?(saved?: boolean): Uint8Array | Promise<Uint8Array>;
+  runDisk?(index: number, drive?: DiskDrive): void | Promise<void>;
+  ejectDisk?(drive?: DiskDrive): void | Promise<void>;
+  exportDisk?(
+    saved?: boolean,
+    drive?: DiskDrive,
+  ): Uint8Array | Promise<Uint8Array>;
   takeElapsedTicks(): number;
   setPcmSink?(sink?: StereoSink): void;
   configureSound?(settings: SoundSettings, sampleRate: number): void;
@@ -169,6 +174,8 @@ export interface Store {
   readonly kempston: KempstonController;
   readonly mouseAccessed: Accessor<boolean>;
   readonly disk: Accessor<DiskState | undefined>;
+  readonly disks: Accessor<readonly [DiskState, DiskState] | undefined>;
+  mountDiskFile(id: string, drive: DiskDrive): Promise<void>;
   readonly tape: Accessor<TapeState | undefined>;
   mountFile(id: string): Promise<void>;
   runTape(index: number): Promise<void>;
@@ -177,12 +184,13 @@ export interface Store {
   readonly dosRom: Accessor<RomRecord | null>;
   readonly dosRomStatus: Accessor<string>;
   readonly diskChangePending: Accessor<boolean>;
+  readonly diskChangePendingDrive: Accessor<DiskDrive | null>;
   resolveDiskChange(choice: "download" | "discard" | "cancel"): void;
   importDosRom(file: File): Promise<void>;
   removeDosRom(): Promise<void>;
-  ejectDisk(): Promise<void>;
-  downloadDisk(): Promise<void>;
-  runDisk(index: number): Promise<void>;
+  ejectDisk(drive?: DiskDrive): Promise<void>;
+  downloadDisk(drive?: DiskDrive): Promise<void>;
+  runDisk(index: number, drive?: DiskDrive): Promise<void>;
   readonly keyboardColor: Accessor<"theme" | "light" | "dark">;
   setKeyboardColor(value: "theme" | "light" | "dark"): void;
   readonly soundEnabled: Accessor<boolean>;
@@ -300,28 +308,36 @@ export async function createAppStore(
     );
     const [mouseAccessed, setMouseAccessed] = createSignal(false);
     const [disk, setDisk] = createSignal<DiskState>();
+    const [disks, setDisks] = createSignal<readonly [DiskState, DiskState]>();
     const [tape, setTape] = createSignal<TapeState>();
     const [dosRom, setDosRom] = createSignal<RomRecord | null>(null);
     const [dosRomStatus, setDosRomStatus] = createSignal(
       "No ROM selected · basic loading available without ROM",
     );
-    const [diskChangePending, setDiskChangePending] = createSignal(false);
+    const [diskChangePendingDrive, setDiskChangePendingDrive] =
+      createSignal<DiskDrive | null>(null);
+    const diskChangePending = () => diskChangePendingDrive() !== null;
+    const driveState = (active: MachineLike | null, drive: DiskDrive) =>
+      active?.diskStates?.[drive] ??
+      (drive === 0 ? active?.diskState : undefined);
     let resolveDiskChange:
       | ((choice: "download" | "discard" | "cancel") => void)
       | undefined;
-    const downloadDisk = async () => {
+    const downloadDisk = async (drive: DiskDrive = 0) => {
       const active = machine();
-      if (!active?.exportDisk || !active.diskState?.id) return;
-      const bytes = await active.exportDisk();
+      const state = driveState(active, drive);
+      if (!active?.exportDisk || !state?.id) return;
+      const bytes = await active.exportDisk(true, drive);
       const blob = new Blob([new Uint8Array(bytes)], {
         type: "application/octet-stream",
       });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = (
-        active.diskState.name.split("/").pop() ?? "disk.trd"
-      ).replace(/\.(trd|scl)$/i, "-modified.trd");
+      link.download = (state.name.split("/").pop() ?? "disk.trd").replace(
+        /\.(trd|scl)$/i,
+        "-modified.trd",
+      );
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       refresh();
@@ -332,26 +348,24 @@ export async function createAppStore(
       if (resumeDiskAction && !machine()?.diskState?.romRequired) store.run();
       resumeDiskAction = false;
     };
-    const allowDiskChange = async () => {
+    const allowDiskChange = async (drive: DiskDrive = 0) => {
       const active = machine();
       const wasRunning = isRunning();
       store.pause();
       if (active instanceof WorkerMachine) await active.pauseExecution();
-      resumeDiskAction = wasRunning;
-      if (!active?.diskState?.dirty) return true;
-      setDiskChangePending(true);
+      resumeDiskAction ||= wasRunning;
+      if (active !== machine())
+        throw new Error("Machine changed; please try again.");
+      if (!driveState(active, drive)?.dirty) return true;
+      setDiskChangePendingDrive(drive);
       const choice = await new Promise<"download" | "discard" | "cancel">(
         (resolve) => {
           resolveDiskChange = resolve;
         },
       );
       resolveDiskChange = undefined;
-      setDiskChangePending(false);
-      if (choice === "download") await downloadDisk();
-      if (choice === "cancel" && wasRunning) {
-        store.run();
-        resumeDiskAction = false;
-      }
+      setDiskChangePendingDrive(null);
+      if (choice === "download") await downloadDisk(drive);
       return choice !== "cancel";
     };
     const commitImport = async (
@@ -522,6 +536,7 @@ export async function createAppStore(
       const active = machine();
       setMouseAccessed(active?.mouseAccessed ?? false);
       setTape(active?.tapeState);
+      setDisks(active?.diskStates);
       const replaced = active !== tickMachine;
       if (replaced) {
         tickMachine = active;
@@ -685,24 +700,45 @@ export async function createAppStore(
 
     const activateRom = (record: RomRecord): boolean =>
       installMachine(record.bytes, record.name);
+    const hasMountedDisk = (active: MachineLike | null) =>
+      ([0, 1] as const).some((drive) => !!driveState(active, drive)?.id);
     const activateWithDisk = async (record: RomRecord): Promise<boolean> => {
       const active = machine();
-      if (!active?.diskState?.id || !active.exportDisk)
+      if (!active?.exportDisk || !hasMountedDisk(active))
         return activateRom(record);
+      setFilesBusy(true);
       store.pause();
-      if (active instanceof WorkerMachine) await active.pauseExecution();
-      const bytes = await active.exportDisk(false),
-        media = active.diskState;
-      if (active !== machine() || !activateRom(record)) return false;
-      await machine()?.mountDisk?.(
-        bytes,
-        media.id,
-        media.name,
-        false,
-        media.dirty,
-      );
-      refresh();
-      return true;
+      try {
+        if (active instanceof WorkerMachine) await active.pauseExecution();
+        const media: {
+          bytes: Uint8Array;
+          state: DiskState;
+          drive: DiskDrive;
+        }[] = [];
+        for (const drive of [0, 1] as const) {
+          const state = driveState(active, drive);
+          if (state?.id)
+            media.push({
+              bytes: await active.exportDisk(false, drive),
+              state,
+              drive,
+            });
+        }
+        if (active !== machine() || !activateRom(record)) return false;
+        for (const { bytes, state, drive } of media)
+          await machine()?.mountDisk?.(
+            bytes,
+            state.id,
+            state.name,
+            false,
+            state.dirty,
+            drive,
+          );
+        refresh();
+        return true;
+      } finally {
+        setFilesBusy(false);
+      }
     };
 
     store = {
@@ -778,25 +814,31 @@ export async function createAppStore(
       },
       mouseAccessed,
       disk,
+      disks,
       dosRom,
       dosRomStatus,
       diskChangePending,
+      diskChangePendingDrive,
       resolveDiskChange(choice) {
         resolveDiskChange?.(choice);
       },
-      async downloadDisk() {
-        try {
-          await downloadDisk();
-        } catch (cause) {
-          setError(messageForError(cause, "Download failed."));
-        }
-      },
-      async ejectDisk() {
+      async downloadDisk(drive = 0) {
         if (filesBusy()) return;
         setFilesBusy(true);
         try {
-          if (await allowDiskChange()) {
-            await machine()?.ejectDisk?.();
+          await downloadDisk(drive);
+        } catch (cause) {
+          setError(messageForError(cause, "Download failed."));
+        } finally {
+          setFilesBusy(false);
+        }
+      },
+      async ejectDisk(drive = 0) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          if (await allowDiskChange(drive)) {
+            await machine()?.ejectDisk?.(drive);
             refresh();
           }
         } catch (cause) {
@@ -806,11 +848,12 @@ export async function createAppStore(
           setFilesBusy(false);
         }
       },
-      async runDisk(index) {
+      async runDisk(index, drive = 0) {
         if (filesBusy()) return;
         setFilesBusy(true);
         try {
-          await machine()?.runDisk?.(index);
+          await machine()?.runDisk?.(index, drive);
+          setError(null);
           store.run();
           store.focusScreen();
           refresh();
@@ -949,14 +992,51 @@ export async function createAppStore(
         setFilesBusy(true);
         try {
           const active = machine();
-          const mounted = active?.diskState?.id === id;
-          if (mounted && !(await allowDiskChange())) return;
+          const mounted = ([0, 1] as const).filter(
+            (drive) => driveState(active, drive)?.id === id,
+          );
+          for (const drive of mounted)
+            if (!(await allowDiskChange(drive))) return;
           await backend.deleteFile(id);
-          if (mounted) await active?.ejectDisk?.();
+          for (const drive of mounted) await active?.ejectDisk?.(drive);
           refresh();
           setFiles(await backend.listFiles());
         } catch (cause) {
           setError(messageForError(cause, "Delete failed."));
+        } finally {
+          finishDiskAction();
+          setFilesBusy(false);
+        }
+      },
+      async mountDiskFile(id, drive) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          const active = machine();
+          if (!active?.mountDisk)
+            throw new Error("Choose a valid ROM before mounting a disk.");
+          const file = await backend.getFile(id);
+          if (!file)
+            throw new Error("The file is no longer in browser storage.");
+          if (!/\.(trd|scl)$/i.test(file.name))
+            throw new Error("Choose a TRD or SCL disk to mount.");
+          const bytes = /\.scl$/i.test(file.name)
+            ? sclToTrd(file.bytes)
+            : file.bytes;
+          if (active !== machine())
+            throw new Error("Machine changed; please mount again.");
+          if (!(await allowDiskChange(drive))) return;
+          await active.mountDisk(
+            bytes,
+            file.id,
+            file.name,
+            false,
+            false,
+            drive,
+          );
+          setError(null);
+        } catch (cause) {
+          setError(messageForError(cause, "Disk mount failed."));
         } finally {
           finishDiskAction();
           setFilesBusy(false);
@@ -1112,35 +1192,15 @@ export async function createAppStore(
           setError("There is no ROM to cold boot.");
           return;
         }
-        const active = machine();
-        if (!active?.diskState?.id || !active.exportDisk) {
+        if (!hasMountedDisk(machine())) {
           if (activateRom(selected)) store.focusScreen();
           return;
         }
-        store.pause();
-        setFilesBusy(true);
         void (async () => {
           try {
-            if (active instanceof WorkerMachine) await active.pauseExecution();
-            const bytes = await active.exportDisk?.(false);
-            const state = active.diskState;
-            if (!bytes || !state) return;
-            if (active !== machine()) return;
-            if (activateRom(selected)) {
-              await machine()?.mountDisk?.(
-                bytes,
-                state.id,
-                state.name,
-                false,
-                state.dirty,
-              );
-              refresh();
-              store.focusScreen();
-            }
+            if (await activateWithDisk(selected)) store.focusScreen();
           } catch (cause) {
             setError(messageForError(cause, "Cold boot failed."));
-          } finally {
-            setFilesBusy(false);
           }
         })();
       },

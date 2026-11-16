@@ -5,16 +5,18 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.7** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.6.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.7: smaller video packets and lighter FLASH capture.** Compact
-worker frame buffers carry only the populated data and reuse their capacity.
-Rendering applies FLASH using each completed frame's captured phase, preserving
-emulated timing and accurate paused-frame repaints.
+**New in 0.6.0: Tape controls and two TR-DOS drives.** Mount TAP/TZX images
+without resetting BASIC, inspect their blocks, select a position, rewind, eject,
+or Run a BASIC program. Mount TRD/SCL disks in drive A or B, each with its own
+catalog, Run, Eject and Download controls. Tape and TR-DOS share their table and
+action styling; narrow screens stack drive A above drive B.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
-or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
+or ZIP in Files, then choose Mount A, Mount B, or Load for drive A autoload.
+[Disk support and compatibility](#tr-dos-disks).
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
 On first visit, the bundled **48K ROM** is loaded and saved in IndexedDB.
@@ -315,10 +317,16 @@ calls, including banked multiloaders. Programs using unsupported DOS routines
 pause with a clear ROM-required message; add your own TR-DOS ROM to continue.
 The TR-DOS ROM is optional and is never bundled.
 
-Load a TRD or SCL from Files to mount it in drive A and show its catalog in TR-DOS.
-`boot.B`, or the sole BASIC file when no boot exists, runs automatically; other
-BASIC files have a Run button. Running a file resets and starts the machine
-automatically. Mounting a disk without a boot candidate leaves execution intact.
+Files offers **Mount A** and **Mount B** for TRD and SCL images. Mounting inserts
+the disk without resetting or starting the machine. Each drive has its own
+catalog, Run, Eject and Download TRD controls. The two drive panels sit side by
+side on wide screens; drive B appears below drive A on narrow screens. Tape and
+TR-DOS use the same catalog typography, row dividers and action spacing.
+
+**Load** retains the drive A autoload workflow: `boot.B`, or the sole BASIC file
+when no boot exists, runs automatically. Running a BASIC file in either drive
+resets and starts the machine; subsequent unprefixed disk loads use that drive.
+Loading a disk without a boot candidate leaves execution intact.
 Full-size and shortened 40/80-track single/double-sided TRD images are supported.
 Images must contain complete 256-byte sectors and fit the geometry
 declared in the system sector. Omitted trailing sectors read as zero; writes
@@ -337,9 +345,10 @@ files or data exceeding disk capacity are rejected before mounting.
 
 Select a 16 KiB ROM in TR-DOS when needed; it persists independently of Spectrum
 firmware. **Remove ROM** clears the active
-and saved TR-DOS ROM while retaining the mounted disk and its changes. Execution
+and saved TR-DOS ROM while retaining both mounted disks and their changes. Execution
 pauses if DOS currently owns ROM space. Without it, Ladder implements
-`#3D03` BASIC LOAD/RUN with literal filenames and optional decimal CODE address
+`#3D03` BASIC LOAD/RUN with literal filenames (including `B:name`), `*"B"` drive
+selection, and optional decimal CODE address
 and length (including literal `VAL "25088"` forms), plus a limited `#3D13` API:
 functions 00–06, 08, 0A, 0E, 13, 14, 17, 18 (hexadecimal), and workspace
 initialization at `#3D21`. Unsupported syntax, services, ROM data access and
@@ -363,13 +372,16 @@ BASIC is eligible; 128K entry requires 7FFD bit 4. Fetching RAM exits DOS. DOS p
 claims use this latch even without media; tape/Caps Lock overlays are suppressed.
 All ordinary CPU port reads/writes latch once at qualified IORQ assertion.
 
-Writes change a session copy. **Download TRD** exports it without overwriting the
+Each drive owns an independent writable session copy, even when both mount the
+same Files entry. **Download TRD** exports that drive without overwriting the
 Files original. Modified eject/replacement/deletion offers Download, Discard or
-Cancel. Reset, Cold boot and Spectrum ROM replacement retain mounted media and
+Cancel for the affected drive. Deleting a library entry mounted in both drives
+confirms any changes in each before ejecting either copy. Reset, Cold boot and
+Spectrum ROM replacement retain both mounted disks and
 modifications; browser restart does not retain unsaved runtime changes.
 
 An optional integration check uses your own firmware without redistributing it:
-`TRDOS_ROM=/absolute/path/trdos.rom npx vitest run src/rom/trdos.test.ts`.
+`TRDOS_ROM=/absolute/path/trdos.rom npx vitest run src/rom/trdos.test.ts src/rom/driveB.test.ts`.
 
 ## Late INT
 

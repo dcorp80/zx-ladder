@@ -1,5 +1,5 @@
 import type { SoundSettings } from "../audio/mixer";
-import type { DiskState } from "../devices/betaDisk";
+import type { DiskDrive, DiskState } from "../devices/betaDisk";
 import type { KempstonInput } from "../devices/kempston";
 import type { SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
@@ -60,10 +60,11 @@ export type Command =
       name: string;
       autoRun: boolean;
       dirty?: boolean;
+      drive?: DiskDrive;
     }
-  | { type: "diskRun"; index: number }
-  | { type: "diskEject" }
-  | { type: "diskExport"; saved: boolean }
+  | { type: "diskRun"; index: number; drive?: DiskDrive }
+  | { type: "diskEject"; drive?: DiskDrive }
+  | { type: "diskExport"; saved: boolean; drive?: DiskDrive }
   | { type: "inspect"; address: number; length: number };
 export type Request = { id: number; epoch: number; command: Command };
 export type ToWorker =
@@ -76,6 +77,7 @@ export type ToWorker =
 export interface MachineState {
   mouseAccessed?: boolean;
   disk?: DiskState;
+  disks?: readonly [DiskState, DiskState];
   running?: boolean;
   frameCount: number;
   framePosition: number;

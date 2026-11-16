@@ -224,8 +224,8 @@ it("keeps Run attached across worker-style catalog refreshes during a click", as
     const called = vi.spyOn(store, "runDisk").mockResolvedValue();
     fireEvent.mouseDown(run);
     // Worker messages clone every catalog entry even when nothing changed.
-    const state = structuredClone(machine.diskState);
-    Object.defineProperty(machine, "diskState", {
+    const state = structuredClone(machine.diskStates);
+    Object.defineProperty(machine, "diskStates", {
       configurable: true,
       get: () => structuredClone(state),
     });
@@ -234,8 +234,8 @@ it("keeps Run attached across worker-style catalog refreshes during a click", as
     expect(run.isConnected).toBe(true);
     fireEvent.mouseUp(run);
     fireEvent.click(run);
-    expect(called).toHaveBeenCalledWith(0);
-    state.catalog[0].name = "changed";
+    expect(called).toHaveBeenCalledWith(0, 0);
+    state[0].catalog[0].name = "changed";
     store.refresh();
     expect(mounted.getByText("changed.B")).toBeInTheDocument();
   } finally {

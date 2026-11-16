@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.6.0 — 2026-11-16
+
+### Added
+
+- A **Tape** section showing the mounted TAP/TZX filename, Spectrum headers,
+  data blocks, sizes, checksum warnings and next-read position. Select a block,
+  Rewind or Eject; Files **Mount** inserts a tape without resetting or typing
+  into BASIC. Existing **Load** keeps its reset-and-autoload behavior.
+- **Run** beside Select on complete BASIC programs. Start from that program's
+  header, honor saved autostart lines, and run programs saved without one from
+  their first line. A temporary load header preserves the mounted original.
+- TR-DOS drive B with independent writable media, catalogs, modified state and
+  head positions. **Mount A** / **Mount B** in Files insert TRD/SCL images without
+  autoloading; each drive has Run, Eject and Download TRD controls.
+- ROM-free drive selection through `#3D13`, BASIC `*"B"` and `B:name` prefixes.
+  Running from B retains B for subsequent unprefixed loads, with or without a
+  supplied TR-DOS ROM. Both disks and modifications survive cold boot and
+  Spectrum ROM replacement.
+
+### Improved
+
+- Use shared typography, action spacing, captions and row dividers in Tape and
+  TR-DOS. Drive panels sit side by side on wide screens and stack A above B on
+  narrow screens.
+- Keep modified-disk decisions specific to the affected drive. Deleting a Files
+  entry mounted in both drives confirms changes in both before ejecting either
+  copy; cancelling retains the mounted copies and library entry.
+- Keep user-mounted tape data separate from the temporary disk startup tape.
+  Retain the tape catalog in the UI worker adapter without retransmitting it
+  every frame, and bound the cursor at end of tape.
+- Preserve in-progress CPU return instructions when mounting, seeking or
+  ejecting a tape, and preserve active disk transfers when changing media in
+  the other drive.
+
+### Development
+
+- Cover manual BASIC tape loading, selected-program Run, autostart handling,
+  source immutability, cancellation, 48K/128K and turbo execution, continuation
+  loads, independent disk writes/exports, modified-media decisions and worker
+  recreation. Optional local-ROM tests exercise both TR-DOS drives without
+  bundling firmware.
+- Verify shared media styling and responsive drive ordering in the browser.
+
 ## 0.5.7 — 2026-11-16
 
 ### Improved

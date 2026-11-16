@@ -8,7 +8,10 @@ import {
 } from "../devices/videoPresets";
 import { Counter } from "../machine/counters";
 import { createMachine } from "../machine/machine";
+import { MemoryBackend } from "../storage/memory";
+import { createAppStore } from "../store";
 import { basicTapFixture } from "../test/tape";
+import { diskFixture } from "../test/trd";
 import { WorkerMachine } from "./client";
 import { WorkerEngine } from "./engine";
 import type { ToWorker } from "./protocol";
@@ -52,6 +55,81 @@ afterEach(() => {
   for (const instance of LoopbackWorker.instances) instance.terminate();
   LoopbackWorker.instances = [];
   vi.unstubAllGlobals();
+});
+
+it("keeps drive B metadata, exports and disk actions independent through the worker", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const machine = new WorkerMachine({
+    rom: new Uint8Array(readFileSync("public/roms/48.rom")),
+  });
+  const a = diskFixture(),
+    b = diskFixture();
+  a[5000] = 33;
+  b[5000] = 66;
+  try {
+    await machine.mountDisk(a, "a", "a.trd", false, true, 0);
+    await machine.mountDisk(b, "b", "b.scl", false, true, 1);
+    expect(machine.diskStates?.map((d) => [d.id, d.dirty])).toEqual([
+      ["a", true],
+      ["b", true],
+    ]);
+    expect((await machine.exportDisk(false, 0))[5000]).toBe(33);
+    expect((await machine.exportDisk(true, 1))[5000]).toBe(66);
+    expect(machine.diskStates?.map((d) => d.dirty)).toEqual([true, false]);
+    await machine.runDisk(0, 1);
+    for (let i = 0; i < 200; i++) {
+      machine.advanceFrame();
+      if ((await machine.inspectMemory(0x8000, 1))[0] === 42) break;
+    }
+    expect((await machine.inspectMemory(0x8000, 1))[0]).toBe(42);
+    expect(machine.diskState?.id).toBe("a");
+    await machine.ejectDisk(1);
+    expect(machine.diskStates?.map((d) => d.id)).toEqual(["a", ""]);
+    expect((await machine.exportDisk(false, 0))[5000]).toBe(33);
+  } finally {
+    machine.dispose();
+  }
+}, 15000);
+
+it("retains both mounted disks when the store recreates its worker machine", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const firmware = new Uint8Array(readFileSync("public/roms/48.rom"));
+  const store = await createAppStore({
+    backend: new MemoryBackend({
+      initial: { name: "48.rom", bytes: firmware },
+    }),
+  });
+  try {
+    const machine = store.machine() as WorkerMachine;
+    const a = diskFixture(),
+      b = diskFixture();
+    a[5000] = 35;
+    b[5000] = 69;
+    await machine.mountDisk(a, "a", "a.trd", false, true, 0);
+    await machine.mountDisk(b, "b", "b.scl", false, true, 1);
+    store.coldBoot();
+    // Await the cold-boot capture/restore protocol without running the CPU.
+    for (let i = 0; i < 100 && store.filesBusy(); i++) await Promise.resolve();
+    expect(store.filesBusy()).toBe(false);
+    const next = store.machine() as WorkerMachine;
+    expect(next).not.toBe(machine);
+    expect(next.diskStates?.map((d) => [d.id, d.dirty])).toEqual([
+      ["a", true],
+      ["b", true],
+    ]);
+    expect((await next.exportDisk(false, 0))[5000]).toBe(35);
+    expect((await next.exportDisk(false, 1))[5000]).toBe(69);
+    await store.importRom({
+      name: "other.rom",
+      arrayBuffer: async () => firmware.slice().buffer,
+    } as File);
+    const replacement = store.machine() as WorkerMachine;
+    expect(replacement).not.toBe(next);
+    expect(replacement.diskStates?.map((d) => d.id)).toEqual(["a", "b"]);
+    expect((await replacement.exportDisk(false, 1))[5000]).toBe(69);
+  } finally {
+    store.dispose();
+  }
 });
 
 it("roundtrips tape catalog and position without repeated catalog transfers or reset", async () => {

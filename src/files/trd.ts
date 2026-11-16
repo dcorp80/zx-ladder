@@ -120,7 +120,7 @@ export function basicTape(bytes: Uint8Array, file: TrdFile): Uint8Array {
   return tape;
 }
 /** A tiny BASIC launcher lets real TR-DOS own loading and metadata handling. */
-export function dosLauncher(name: string): Uint8Array {
+export function dosLauncher(name: string, drive: 0 | 1 = 0): Uint8Array {
   if (!/^[\x20-\x21\x23-\x7e]{1,8}$/.test(name))
     throw new Error(
       "This disk filename cannot be entered by the BASIC launcher.",
@@ -144,14 +144,20 @@ export function dosLauncher(name: string): Uint8Array {
     34,
     13,
   ];
+  // *"B" sets the default drive as well as the current drive. A B: filename
+  // prefix alone would make a later unprefixed LOAD return to drive A.
+  const select = drive === 1 ? [...body.slice(0, 16), 42, 34, 66, 34, 13] : [];
+  const program = select.length
+    ? [0, 10, select.length, 0, ...select, 0, 20, body.length, 0, ...body]
+    : [0, 10, body.length, 0, ...body];
   const payload = new Uint8Array(4096 + 256);
-  payload.set([0, 10, body.length, 0, ...body, 0x80, 0xaa, 10, 0], 4096);
+  payload.set([...program, 0x80, 0xaa, 10, 0], 4096);
   return basicTape(payload, {
     index: 0,
     name: "disk-run",
     ext: "B",
-    parameter: body.length + 4,
-    length: body.length + 4,
+    parameter: program.length,
+    length: program.length,
     sectors: 1,
     offset: 4096,
   });

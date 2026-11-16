@@ -40,7 +40,7 @@ export function parseScl(bytes: Uint8Array) {
         : "SCL has unrecognized trailing bytes";
   return { files, warning };
 }
-/** Repack as an ordinary drive-A disk; retain payload bytes and descriptor fields. */
+/** Repack as an ordinary TRD; retain payload bytes and descriptor fields. */
 export function sclToTrd(bytes: Uint8Array): Uint8Array {
   const { files } = parseScl(bytes);
   const trd = new Uint8Array(655360);

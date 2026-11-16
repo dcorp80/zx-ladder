@@ -6,7 +6,7 @@ import {
   type StereoSink,
 } from "../audio/mixer";
 import { AyDevice } from "../devices/ay";
-import { BetaDisk } from "../devices/betaDisk";
+import { BetaDisk, type DiskDrive } from "../devices/betaDisk";
 import { BorderDevice, type FeBatch } from "../devices/border";
 import { GlukRtc } from "../devices/glukRtc";
 import { KempstonDevice, type KempstonInput } from "../devices/kempston";
@@ -141,7 +141,10 @@ export class Machine implements ClockContext {
   readonly disk = new BetaDisk(() => this.elapsedTicks);
   readonly dos: TrdosService;
   get diskState() {
-    return this.disk.state;
+    return this.disk.stateFor(0);
+  }
+  get diskStates() {
+    return this.disk.states;
   }
   get dosEnabled() {
     return this.disk.dosEnabled;
@@ -429,36 +432,37 @@ export class Machine implements ClockContext {
     name: string,
     autoRun = true,
     dirty = false,
+    drive: DiskDrive = 0,
   ): void {
-    this.disk.mount(bytes, id, name);
-    this.disk.dirty = dirty;
+    this.disk.mount(bytes, id, name, drive);
+    this.disk.setDirty(drive, dirty);
     this.memory.dosRom = this.disk.dosEnabled ? this.disk.rom : undefined;
-    this.dos.reset();
-    const boot = trdBoot(this.disk.state.catalog);
-    if (autoRun && boot) this.runDisk(boot.index);
+    const boot = trdBoot(this.disk.stateFor(drive).catalog);
+    if (autoRun && boot) this.runDisk(boot.index, drive);
   }
-  ejectDisk(): void {
-    this.disk.eject();
+  ejectDisk(drive: DiskDrive = 0): void {
+    this.disk.eject(drive);
     this.memory.dosRom = this.disk.dosEnabled ? this.disk.rom : undefined;
-    this.dos.reset();
   }
-  exportDisk(saved = true): Uint8Array {
-    if (!this.disk.bytes) throw new Error("No disk mounted.");
-    if (saved) this.disk.dirty = false;
-    return this.disk.bytes.slice();
+  exportDisk(saved = true, drive: DiskDrive = 0): Uint8Array {
+    const image = this.disk.imageFor(drive);
+    if (saved) this.disk.setDirty(drive, false);
+    return image.slice();
   }
-  runDisk(index: number): void {
-    const file = this.disk.state.catalog.find(
-      (f) => f.index === index && f.ext === "B",
-    );
-    if (!file || !this.disk.bytes)
-      throw new Error("BASIC file is no longer on the disk.");
+  runDisk(index: number, drive: DiskDrive = 0): void {
+    const file = this.disk
+      .stateFor(drive)
+      .catalog.find((f) => f.index === index && f.ext === "B");
+    if (!file) throw new Error("BASIC file is no longer on the disk.");
+    const image = this.disk.imageFor(drive);
     const tape = this.disk.rom
-      ? dosLauncher(file.name)
-      : basicTape(this.disk.bytes, file);
+      ? dosLauncher(file.name, drive)
+      : basicTape(image, file);
     this.startTape(this.diskTape, tape, "disk-start.tap", true);
     this.diskTapeActive = true;
+    this.disk.selectDrive(drive);
     this.dos.prepareBasic = this.disk.rom ? undefined : file;
+    this.dos.prepareDrive = drive;
   }
   mountTape(bytes: Uint8Array, name: string): void {
     this.tape.mount(bytes, name, false);

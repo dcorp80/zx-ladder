@@ -1,5 +1,5 @@
 import type { SoundSettings, StereoSink } from "../audio/mixer";
-import type { DiskState } from "../devices/betaDisk";
+import type { DiskDrive, DiskState } from "../devices/betaDisk";
 import {
   compactCaptureMinimum,
   compactCaptureViews,
@@ -140,6 +140,7 @@ export class WorkerMachine implements MachineLike {
   readonly counters = createCounters();
   readonly cpu = { regs: { pc: 0 } };
   diskState?: DiskState;
+  diskStates?: readonly [DiskState, DiskState];
   mouseAccessed = false;
   kempstonInput(input: KempstonInput) {
     this.fire({ type: "kempston", input });
@@ -234,6 +235,7 @@ export class WorkerMachine implements MachineLike {
   private apply(state: MachineState): void {
     this.mouseAccessed = state.mouseAccessed ?? false;
     this.diskState = state.disk;
+    this.diskStates = state.disks;
     if (state.disk?.romRequired) this.running = false;
     this.frameCount = state.frameCount;
     this.framePosition = state.framePosition;
@@ -274,6 +276,7 @@ export class WorkerMachine implements MachineLike {
           this.mouseAccessed = message.state.mouseAccessed ?? false;
         if (message.state?.disk) {
           this.diskState = message.state.disk;
+          this.diskStates = message.state.disks;
           if (this.diskState.romRequired) this.running = false;
         }
         waiting?.resolve(message);
@@ -451,19 +454,28 @@ export class WorkerMachine implements MachineLike {
     name: string,
     autoRun = true,
     dirty = false,
+    drive: DiskDrive = 0,
   ): Promise<void> {
+    if (autoRun) this.epoch++;
+    await this.request({
+      type: "diskMount",
+      bytes,
+      id,
+      name,
+      autoRun,
+      dirty,
+      drive,
+    });
+  }
+  async runDisk(index: number, drive: DiskDrive = 0): Promise<void> {
     this.epoch++;
-    await this.request({ type: "diskMount", bytes, id, name, autoRun, dirty });
+    await this.request({ type: "diskRun", index, drive });
   }
-  async runDisk(index: number): Promise<void> {
-    this.epoch++;
-    await this.request({ type: "diskRun", index });
+  async ejectDisk(drive: DiskDrive = 0): Promise<void> {
+    await this.request({ type: "diskEject", drive });
   }
-  async ejectDisk(): Promise<void> {
-    await this.request({ type: "diskEject" });
-  }
-  async exportDisk(saved = true): Promise<Uint8Array> {
-    const reply = await this.request({ type: "diskExport", saved });
+  async exportDisk(saved = true, drive: DiskDrive = 0): Promise<Uint8Array> {
+    const reply = await this.request({ type: "diskExport", saved, drive });
     if (!reply.memory) throw new Error("No disk returned.");
     return reply.memory;
   }

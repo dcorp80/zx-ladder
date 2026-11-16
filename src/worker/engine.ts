@@ -89,6 +89,7 @@ export class WorkerEngine {
     return {
       tapeState: { ...tape, catalog },
       disk: m.diskState,
+      disks: m.diskStates,
       mouseAccessed: m.mouseAccessed,
       running: this.running,
       frameCount: m.frameCount,
@@ -424,16 +425,16 @@ export class WorkerEngine {
           m.setDosRom(c.bytes);
           break;
         case "diskMount":
-          m.mountDisk(c.bytes, c.id, c.name, c.autoRun, c.dirty);
+          m.mountDisk(c.bytes, c.id, c.name, c.autoRun, c.dirty, c.drive);
           break;
         case "diskRun":
-          m.runDisk(c.index);
+          m.runDisk(c.index, c.drive);
           break;
         case "diskEject":
-          m.ejectDisk();
+          m.ejectDisk(c.drive);
           break;
         case "diskExport": {
-          const memory = m.exportDisk(c.saved);
+          const memory = m.exportDisk(c.saved, c.drive);
           this.send({ type: "reply", id, state: this.state(), memory }, [
             memory.buffer,
           ]);

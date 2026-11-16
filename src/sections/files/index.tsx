@@ -131,6 +131,24 @@ export function FilesSection() {
                           Mount
                         </button>
                       </Show>
+                      <Show when={/\.(trd|scl)$/i.test(file.name)}>
+                        <button
+                          type="button"
+                          class="btn"
+                          disabled={store.filesBusy() || !store.machine()}
+                          onClick={() => void store.mountDiskFile(file.id, 0)}
+                        >
+                          Mount A
+                        </button>
+                        <button
+                          type="button"
+                          class="btn"
+                          disabled={store.filesBusy() || !store.machine()}
+                          onClick={() => void store.mountDiskFile(file.id, 1)}
+                        >
+                          Mount B
+                        </button>
+                      </Show>
                       <button
                         type="button"
                         class="btn"

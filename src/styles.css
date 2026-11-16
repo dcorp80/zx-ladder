@@ -704,35 +704,110 @@ h1 {
   gap: 0.5rem;
   flex-shrink: 0;
 }
-.tape-name {
+.media-content {
+  font-size: 0.95rem;
+}
+.media-content p {
+  margin: 0.75rem 0;
+}
+.media-name {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.tape-catalog {
+.media-catalog {
   overflow: auto;
   max-height: 24rem;
 }
-.tape-catalog table {
+.media-catalog table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
-.tape-catalog caption {
+.media-catalog caption {
   text-align: left;
   color: var(--muted);
   padding: 0.5rem 0;
 }
-.tape-catalog th,
-.tape-catalog td {
+.media-catalog th,
+.media-catalog td {
   text-align: left;
   padding: 0.5rem;
   border-bottom: 1px solid var(--border);
 }
-.tape-catalog tr[aria-current="step"] {
+.media-catalog tr[aria-current="step"] {
   background: var(--accent-soft);
 }
-.tape-warning {
+.media-warning {
   font-weight: 600;
+}
+.media-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.media-content > :first-child,
+.media-content > input + .media-actions {
+  margin-top: 0;
+}
+.media-status {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.media-heading {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.media-empty {
+  color: var(--muted);
+}
+.media-notice {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+}
+.media-notice > :first-child {
+  margin-top: 0;
+}
+.disk-drives {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "a b";
+  gap: 1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.disk-drive {
+  min-width: 0;
+}
+.disk-drive-a {
+  grid-area: a;
+}
+.disk-drive-b {
+  grid-area: b;
+  border-left: 1px solid var(--border);
+  padding-left: 1rem;
+}
+@media (max-width: 760px) {
+  .disk-drives {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "a" "b";
+  }
+  .disk-drive-b {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+  }
+  .file-row {
+    flex-wrap: wrap;
+  }
+  .file-row > .file-actions {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
 }
 .file-group h3 {
   font-size: 0.95rem;
