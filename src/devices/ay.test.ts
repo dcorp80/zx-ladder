@@ -309,14 +309,13 @@ it("bounds batches for custom frames longer than the standard presets", () => {
   expect(durations).toEqual([AY_MAX_BATCH_TICKS, AY_MAX_BATCH_TICKS]);
 });
 
-it("keeps AY absent on 48K machines and preserves the explicit broad-FD collision", () => {
+it("keeps AY absent on 48K machines and its ports independent of paging", () => {
   const m48 = createMachine({ rom: new Uint8Array(16384) });
   expect(m48.ay).toBeUndefined();
   expect(m48.bus.readIo(0xfffd)).toBe(255);
   const m = machine();
-  m.setDecodeFd(true);
   m.bus.writeIo(0xfffd, 13);
-  expect(m.mcu.latch).toBe(13);
+  expect(m.mcu.latch).toBe(0);
   expect(m.ay?.selectedRegister).toBe(13);
 });
 

@@ -11,7 +11,7 @@ export interface AppConfig {
   kempston?: KempstonSettings;
   videoPreset: string;
   turbo: boolean;
-  decodeFd: boolean;
+  mode48k: boolean;
   rtcEnabled: boolean;
   freeRun: boolean;
   showTechnicalFields: boolean;
@@ -45,7 +45,7 @@ export function sanitizeConfig(value: unknown): AppConfig {
     videoPreset:
       VIDEO_PRESETS.find((p) => p.id === config.videoPreset)?.id ??
       PENTAGON_VIDEO_PRESET.id,
-    decodeFd: typeof config.decodeFd === "boolean" ? config.decodeFd : false,
+    mode48k: typeof config.mode48k === "boolean" ? config.mode48k : false,
     rtcEnabled:
       typeof config.rtcEnabled === "boolean" ? config.rtcEnabled : true,
     turbo: typeof config.turbo === "boolean" ? config.turbo : false,

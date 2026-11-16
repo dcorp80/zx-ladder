@@ -158,6 +158,7 @@ export class WorkerMachine implements MachineLike {
   extendedMode = false;
   showTechnicalFields = true;
   cpuLoad: number | null = null;
+  active48kMode: boolean;
   memoryMapping: MemoryMapping = { ramPage: 0, romPage: 0, screenPage: 5 };
   hasFrame = false;
   presentationVersion = 0;
@@ -174,11 +175,12 @@ export class WorkerMachine implements MachineLike {
   constructor(
     options: Pick<
       MachineOptions,
-      "rom" | "cpu7" | "lateInt" | "videoPreset" | "decodeFd" | "rtcEnabled"
+      "rom" | "cpu7" | "lateInt" | "videoPreset" | "mode48k" | "rtcEnabled"
     >,
   ) {
     this.videoPreset = options.videoPreset ?? PENTAGON_VIDEO_PRESET;
     this.cpu7 = options.cpu7 ?? false;
+    this.active48kMode = options.rom.length === 16384 || !!options.mode48k;
     this.rgba = new Uint8ClampedArray(this.width * this.height * 4);
     this.worker = new Worker(new URL("./machine.worker.ts", import.meta.url), {
       type: "module",
@@ -194,7 +196,7 @@ export class WorkerMachine implements MachineLike {
     this.fire({
       type: "init",
       rom: options.rom,
-      decodeFd: options.decodeFd,
+      mode48k: options.mode48k,
       rtcEnabled: options.rtcEnabled,
       preset: this.videoPreset,
       turbo: this.cpu7,
@@ -245,6 +247,7 @@ export class WorkerMachine implements MachineLike {
     this.extendedMode = !!state.extendedMode;
     this.showTechnicalFields = state.showTechnicalFields;
     this.cpuLoad = state.cpuLoad;
+    this.active48kMode = state.active48kMode;
     this.memoryMapping = state.memoryMapping;
     this.tape.status = state.tape;
     this.keyboard.update(state);
@@ -417,8 +420,8 @@ export class WorkerMachine implements MachineLike {
   setLateInt(value: boolean): void {
     this.fire({ type: "lateInt", value });
   }
-  setDecodeFd(value: boolean): void {
-    this.fire({ type: "decodeFd", value });
+  set48kMode(value: boolean): void {
+    this.fire({ type: "mode48k", value });
   }
   setExtendedMode(value: boolean): void {
     this.fire({ type: "extendedMode", value });

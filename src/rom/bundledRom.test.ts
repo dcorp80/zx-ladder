@@ -5,7 +5,7 @@ import { MemoryBackend } from "../storage/memory";
 import { createAppStore } from "../store";
 import { makeFakeLoop, makeFakeMachine } from "../test/fakes";
 
-const record = { name: "48.rom", bytes: new Uint8Array(16384) };
+const record = { name: "128.rom", bytes: new Uint8Array(32768) };
 const deps = {
   machineFactory: () => makeFakeMachine(),
   hostLoopFactory: () => makeFakeLoop(),
@@ -16,6 +16,10 @@ it("persists first-run firmware and restores paused without fetching again", asy
   const store = await createAppStore({ ...deps, backend, loadBundledRom });
   expect(loadBundledRom).toHaveBeenCalledTimes(1);
   expect((await backend.loadRom())?.bytes).toEqual(record.bytes);
+  expect((await backend.loadRom())?.pageNames).toEqual([
+    "128.rom (1/2)",
+    "128.rom (2/2)",
+  ]);
   expect(store.machine()).not.toBeNull();
   expect(store.isRunning()).toBe(false);
   store.dispose();
@@ -27,7 +31,10 @@ it("persists first-run firmware and restores paused without fetching again", asy
   const fresh = await createAppStore({ ...deps, backend, loadBundledRom });
   expect(loadBundledRom).toHaveBeenCalledTimes(1);
   expect(fresh.rom()?.name).toBe("custom.rom");
-  expect(fresh.rom()?.bytes[0]).toBe(7);
+  expect(fresh.rom()?.bytes[0]).toBe(255);
+  expect(fresh.rom()?.bytes[16384]).toBe(7);
+  expect(fresh.rom()?.pageNames).toEqual([null, "custom.rom"]);
+  expect((await backend.loadRom())?.pageNames).toEqual([null, "custom.rom"]);
   fresh.dispose();
 });
 it("keeps the selector usable after a bundled download failure", async () => {
@@ -69,7 +76,25 @@ it("validates downloaded bytes and rejects unsuccessful responses", async () => 
   try {
     expect((await loadBundledRom()).bytes).toEqual(record.bytes);
     expect(fetcher).toHaveBeenCalledWith(
+      `${import.meta.env.BASE_URL}roms/128.rom`,
+    );
+    fetcher.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(16384),
+    });
+    expect((await loadBundledRom("48.rom")).bytes).toHaveLength(16384);
+    expect(fetcher).toHaveBeenLastCalledWith(
       `${import.meta.env.BASE_URL}roms/48.rom`,
+    );
+    await expect(loadBundledRom()).rejects.toThrow(
+      "128.rom must be exactly 32768",
+    );
+    fetcher.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(32768),
+    });
+    await expect(loadBundledRom("48.rom")).rejects.toThrow(
+      "48.rom must be exactly 16384",
     );
     fetcher.mockResolvedValue({ ok: false, status: 404 });
     await expect(loadBundledRom()).rejects.toThrow("404");
@@ -98,6 +123,7 @@ it("persists and restores the complete 128K ROM pair", async () => {
   first.dispose();
   const restored = await createAppStore({ ...deps, backend });
   expect(restored.rom()?.bytes).toEqual(bytes);
+  expect(restored.rom()?.pageNames).toEqual(["128.rom (1/2)", "128.rom (2/2)"]);
   expect(restored.isRunning()).toBe(false);
   restored.dispose();
 });

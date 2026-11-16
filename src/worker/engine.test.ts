@@ -335,31 +335,63 @@ it("reports tick deltas while a video transfer is still in flight", () => {
   }
 });
 
-it("routes live paging decode changes to the worker and keeps page contents", () => {
+it("applies 48K mode on worker initialization and reset without clearing RAM", () => {
   const h = harness();
   const firmware = new Uint8Array(32768);
-  // OUT (FD),3; LD A,91; LD (C000),A; HALT
-  firmware.set([0x3e, 3, 0xd3, 0xfd, 0x3e, 91, 0x32, 0, 0xc0, 0x76]);
+  // OUT (FD),3; LD A,91; LD (C000),A; HALT in both ROM pages.
+  const program = [0x3e, 3, 0xd3, 0xfd, 0x3e, 91, 0x32, 0, 0xc0, 0x76];
+  firmware.set(program);
+  firmware.set(program, 16384);
+  const fixed48k = { ramPage: 0, romPage: 1, screenPage: 5 };
   try {
-    h.send({
+    const initialized = h.send({
       type: "init",
       rom: firmware,
       preset: PENTAGON_VIDEO_PRESET,
       turbo: false,
       lateInt: false,
-      decodeFd: false,
+      mode48k: true,
     });
-    h.send({ type: "decodeFd", value: true });
-    h.send({ type: "step", pixels: 1000 });
+    expect(initialized.state?.memoryMapping).toEqual(fixed48k);
+    expect(initialized.state?.active48kMode).toBe(true);
+    // The locked 48K mapping ignores the program's paging attempt.
+    expect(h.send({ type: "step", pixels: 1000 }).state?.memoryMapping).toEqual(
+      fixed48k,
+    );
     expect(
       h.send({ type: "inspect", address: 0xc000, length: 1 }).memory?.[0],
     ).toBe(91);
+    const pending128k = h.send({ type: "mode48k", value: false });
+    expect(pending128k.state?.memoryMapping).toEqual(fixed48k);
+    expect(pending128k.state?.active48kMode).toBe(true);
     h.send({ type: "reset", value: true });
-    h.send({ type: "reset", value: false });
-    // Reset maps page 0, proving that OUT (03FD),A selected a different page.
+    const reset = h.send({ type: "reset", value: false });
+    expect(reset.state?.memoryMapping).toEqual({
+      ramPage: 0,
+      romPage: 0,
+      screenPage: 5,
+    });
+    expect(reset.state?.active48kMode).toBe(false);
     expect(
       h.send({ type: "inspect", address: 0xc000, length: 1 }).memory?.[0],
-    ).toBe(255);
+    ).toBe(91);
+    expect(h.send({ type: "step", pixels: 1000 }).state?.memoryMapping).toEqual(
+      {
+        ramPage: 3,
+        romPage: 0,
+        screenPage: 5,
+      },
+    );
+    const pending48k = h.send({ type: "mode48k", value: true });
+    expect(pending48k.state?.memoryMapping?.ramPage).toBe(3);
+    expect(pending48k.state?.active48kMode).toBe(false);
+    h.send({ type: "reset", value: true });
+    const reset48k = h.send({ type: "reset", value: false });
+    expect(reset48k.state?.memoryMapping).toEqual(fixed48k);
+    expect(reset48k.state?.active48kMode).toBe(true);
+    expect(
+      h.send({ type: "inspect", address: 0xc000, length: 1 }).memory?.[0],
+    ).toBe(91);
   } finally {
     h.engine.dispose();
   }

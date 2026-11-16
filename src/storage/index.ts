@@ -4,6 +4,7 @@ export {
   cloneRomRecord,
   ROM_SIZE,
   type RomRecord,
+  type RomSlot,
   type StorageBackend,
   validateRomBytes,
   validateRomRecord,

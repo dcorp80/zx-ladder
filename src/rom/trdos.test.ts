@@ -3,6 +3,30 @@ import { expect, it } from "vitest";
 import { createMachine } from "../machine/machine";
 import { diskFixture } from "../test/trd";
 
+it.each([false, true])(
+  "boots the standalone 48K ROM in ROM1 without entering DOS after reset (DOS ROM=%s)",
+  (dosRom) => {
+    const rom = new Uint8Array(readFileSync("public/roms/128.rom"));
+    rom.set(new Uint8Array(readFileSync("public/roms/48.rom")), 16384);
+    const m = createMachine({ rom, mode48k: true });
+    if (dosRom) m.setDosRom(new Uint8Array(16384).fill(0x76));
+    for (const warm of [false, true]) {
+      if (warm) {
+        m.setReset(true);
+        m.setReset(false);
+      }
+      for (let i = 0; i < 100; i++) {
+        m.advanceFrame();
+        expect(m.dosEnabled).toBe(false);
+      }
+      expect(m.disk.romRequired).toBe(false);
+      expect(m.mcu.latch).toBe(0x30);
+      expect(m.memory.read(0x5c53) | (m.memory.read(0x5c54) << 8)).toBe(0x5ccb);
+    }
+  },
+  30000,
+);
+
 for (const expanded of [false, true])
   for (const cpu7 of [false, true]) {
     it(`boots ROM-free BASIC disk (128K=${expanded}, turbo=${cpu7})`, () => {

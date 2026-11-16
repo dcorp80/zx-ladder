@@ -28,6 +28,9 @@ async function setup() {
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.set48kMode(true);
+  store.setReset(true);
+  store.setReset(false);
   const view = render(() => (
     <StoreProvider value={store}>
       <FilesSection />

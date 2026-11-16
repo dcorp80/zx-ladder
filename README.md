@@ -19,34 +19,54 @@ or ZIP in Files, then choose Mount A, Mount B, or Load for drive A autoload.
 [Disk support and compatibility](#tr-dos-disks).
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
-On first visit, the bundled **48K ROM** is loaded and saved in IndexedDB.
+On first visit, the bundled **128K ROM pair** is loaded and saved in IndexedDB.
 Press **Run** to start. A previously saved ROM takes precedence and is
-restored paused; the Machine section’s file selector can replace it as before.
+restored paused; the Machine section's ROM controls can replace either page.
 If the bundled download fails, select your own ROM to continue.
 
-Use **Use bundled 128K ROM** in Machine to cold boot with 128 KiB RAM and two
-ROM pages. A 32 KiB file supplies both pages in file order. For a 16 KiB 128K
-ROM, select the 128K file role before importing; the bundled `48.rom` supplies
-page 1. Ordinary 16 KiB imports retain the 48K machine. Completed ROM pairs
-persist together, so restoring them needs no additional download.
+Machine has two 16 KiB slots, **ROM0** and **ROM1**, each with its own file
+selector and source filename. **Use bundled 128K ROM** replaces both slots,
+shown as `128.rom (1/2)` and `128.rom (2/2)`. **Use bundled 48K ROM** replaces
+only ROM1 with `48.rom` and leaves ROM0 intact.
+
+- Choosing a 16 KiB file through ROM0 replaces ROM0 only.
+- Choosing a 32 KiB file through ROM0 replaces both pages in file order.
+- Choosing a 16 or 32 KiB file through ROM1 replaces only ROM1, using the first
+  16 KiB. A 32 KiB source is labelled `(1/2)` in that slot.
+
+Other sizes are rejected before either slot changes. Replacing firmware cold
+boots the machine, clearing RAM while preserving the running/paused state and
+mounted disks, including modifications. ROM changes leave **48K mode** unchanged.
+The 128K image contains a modified 48K BASIC ROM1. For 128K startup, ROM0 needs
+a compatible ROM1; **Use bundled 128K ROM** restores
+the matching pair. Standalone `48.rom` in ROM1 boots directly with **48K mode**
+checked. Combining it with the bundled 128K ROM0 while that mode is unchecked
+can send execution into the TR-DOS entry area during startup.
+Both pages and their separate source filenames save together, so mixed pairs
+restore without additional downloads. Old saved 32 KiB images split into their
+two pages; old saved 16 KiB images occupy ROM1, leaving ROM0 labelled **Empty**.
+Empty slots contain FFh, and restoring an old image leaves the mode setting unchanged.
 
 Machine also shows the current RAM page at C000–FFFF, ROM page at 0000–3FFF,
 and physical screen RAM page (5 or 7). These follow the live machine status and
-return to RAM 0 / ROM 0 / screen 5 after reset.
+return to RAM 0 / screen 5 after reset, with ROM selected by **48K mode**.
 
-**Decode paging port by low byte** switches between standard 128K loose decoding (unchecked,
-default: A15=0 and A1=0) and any `xxFD` address (checked). The setting is saved and applies live
-without clearing RAM or unlocking paging. Bits 0–2 select top RAM, bit 3 selects
-screen RAM 5/7, bit 4 selects ROM, and bit 5 locks further paging until reset.
-The low-byte override also catches FFFD/BFFD sound-port writes and disrupts the
-bundled 128K ROM boot; use standard decoding for that firmware. Warm reset clears paging and preserves RAM; cold boot clears RAM.
+**48K mode** is saved and applies on Reset or Cold boot. It
+initializes the 7FFD latch to `30h`: ROM 1 (48K BASIC), RAM 0, screen RAM 5 and
+paging locked until reset. Unchecked (the default), reset selects ROM 0 and
+unlocks paging. ROM0 and ROM1 remain installed in either mode.
+The Machine subtitle follows the active mode; changing the checkbox takes
+effect there after Reset or Cold boot.
+Paging always uses standard 128K decoding (A15=0 and A1=0). Bits 0–2 select
+top RAM, bit 3 selects screen RAM 5/7, bit 4 selects ROM, and bit 5 locks
+further paging until reset. Warm reset preserves RAM; cold boot clears RAM.
 Video fetches physical screen RAM independently of CPU mappings and CPU address
 interceptors, retaining the existing slot arbitration and captured fetch latches.
 Flash loading supports the bundled 128K Tape Loader menu and the standard 48K
-loader. AY sound is available on 128K machines; tape pulse playback remains unavailable.
+loader. AY sound remains available in 48K mode; tape pulse playback remains unavailable.
 
 
-**Gluk RTC** is enabled by default, with a saved checkbox below Decode paging in
+**Gluk RTC** is enabled by default, with a saved checkbox below 48K mode in
 Machine. Spectrum software selects a register through DFF7h and reads/writes
 data through BFF7h after enabling access with EFF7h bit 7. The 128-byte array
 refreshes host local time before data reads and supports BCD/binary and 12/24-hour
@@ -65,7 +85,7 @@ is unchecked; hiding technical fields keeps it checked. Its saved normal-mode
 preference returns when those overrides end. The selected canvas view retains
 its dimensions when extended mode changes. Pentagon uses the extended screen layout; Lviv applies
 the same wiring to its own counters, so software written for Pentagon can look
-irregular there. The bit also operates on 48K machines, where software cannot
+irregular there. The bit also operates in 48K mode, where software cannot
 populate the companion RAM page through normal CPU mappings.
 
 Video preset, Turbo, Free run, technical-field and border visibility, and theme are saved in
@@ -73,8 +93,12 @@ localStorage and restored with the saved ROM. Press Run or Step frame to begin. 
 default theme and follows OS light/dark changes live; **Light** and **Dark**
 override it. The theme cache is applied before the first paint.
 
+Run/Pause, Step frame, Reset and Cold boot stay in the Machine header and remain
+accessible when the section is folded.
+
 - **Pause / Step frame** stop execution or finish the next raster frame.
-- **Cold boot** recreates the CPU and devices with RAM filled with FFh.
+- **Cold boot** recreates the CPU and devices with RAM filled with FFh. It is
+  available while running and preserves the running or paused state.
 - **Reset** holds the CPU's `nRESET` pin low while pressed (mouse, touch,
   Space, or Enter), for at least six CPU half-cycles. Execution and video
   timing continue. A tap while paused is applied when execution resumes.
@@ -105,7 +129,7 @@ The Pentagon video preset uses 448 × 320 pixels, 71,680 base CPU ticks per
 frame, and a derived rate of 48.828125 Hz. Lviv uses 448 × 312 pixels,
 69,888 base CPU ticks, and approximately 50.080128 Hz. The full view includes
 sync and blanking; the visible-only view is 370 × 304 for Pentagon and
-352 × 288 for Lviv. Both use the same uncontended 48K machine and 7 MHz
+352 × 288 for Lviv. Both use the same uncontended machine and 7 MHz
 memory-slot clock. Video presets define raster counters, signal windows,
 INT timing, and FLASH advancement/bit selection independently of that clock.
 The machine captures pixel and attribute latches as execution progresses.
@@ -267,13 +291,12 @@ without an autostart line run from their first line. Run uses a temporary header
 for that load and preserves the original tape. CODE and array blocks have no Run
 button because they do not specify a standalone execution entry point.
 
-Load validates the tape before changing the machine. With the bundled 128K ROM,
-it resets to the main menu, waits for its verified keyboard polling loop, and
-presses Enter through the keyboard matrix to select Tape Loader. With a standalone
-48K ROM, it resets, waits for BASIC, and types `LOAD ""` plus Enter. Reset itself
-preserves RAM, but the 128K firmware's boot routine clears RAM. Standard 128K decoding
-is required for this 128K menu workflow; incompatible FD decoding is rejected
-before reset. Ordinary ROM paging retains the tape cursor, and flash copies use
+Load validates the tape before changing the machine. With the bundled 128K ROM
+and 48K mode unchecked, it resets to the main menu, waits for its verified keyboard
+polling loop, and presses Enter through the keyboard matrix to select Tape Loader.
+With 48K mode checked and a supported ROM1, it resets, waits for BASIC, and types
+`LOAD ""` plus Enter. Reset itself preserves RAM, but the 128K firmware's boot
+routine clears RAM. Ordinary ROM paging retains the tape cursor, and flash copies use
 the currently selected RAM pages, including banked loads above C000.
 
 Loading is accelerated by intercepting the standard ROM

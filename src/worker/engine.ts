@@ -101,6 +101,7 @@ export class WorkerEngine {
       extendedMode: m.extendedMode,
       showTechnicalFields: m.showTechnicalFields,
       cpuLoad: m.cpuLoad,
+      active48kMode: m.active48kMode,
       memoryMapping: m.memoryMapping,
       tape: m.tape.status,
       keys: ALL_KEYS.filter((key) => m.keyboard.isPressed(key)),
@@ -273,7 +274,7 @@ export class WorkerEngine {
       this.rawFrames = c.rawFrames ?? false;
       this.machine = createMachine({
         rom: c.rom,
-        decodeFd: c.decodeFd,
+        mode48k: c.mode48k,
         rtcEnabled: c.rtcEnabled,
         videoPreset: c.preset,
         cpu7: c.turbo,
@@ -347,8 +348,8 @@ export class WorkerEngine {
           m.setShowTechnicalFields(c.value);
           this.dirty = true;
           break;
-        case "decodeFd":
-          m.setDecodeFd(c.value);
+        case "mode48k":
+          m.set48kMode(c.value);
           break;
         case "extendedMode":
           if (this.running && m.framePosition !== 0) {

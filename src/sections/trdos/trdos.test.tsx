@@ -28,6 +28,9 @@ it("shows catalog, protects dirty deletion, retains media on cold boot and persi
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.set48kMode(true);
+  store.setReset(true);
+  store.setReset(false);
   const mounted = render(() => (
     <StoreProvider value={store}>
       <TrdosSection />
@@ -109,6 +112,9 @@ it("reports ROM-required stops through the store and makes Run/Step explain the 
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.set48kMode(true);
+  store.setReset(true);
+  store.setReset(false);
   const mounted = render(() => (
     <StoreProvider value={store}>
       <TrdosSection />
@@ -152,6 +158,9 @@ it("loads an SCL as writable TRD and downloads TRD without modifying its library
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.set48kMode(true);
+  store.setReset(true);
+  store.setReset(false);
   const original = sclFixture();
   let downloaded = "",
     downloadSize = 0;
@@ -211,6 +220,9 @@ it("keeps Run attached across worker-style catalog refreshes during a click", as
     machineFactory: createMachine,
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.set48kMode(true);
+  store.setReset(true);
+  store.setReset(false);
   const mounted = render(() => (
     <StoreProvider value={store}>
       <TrdosSection />

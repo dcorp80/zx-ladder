@@ -20,6 +20,7 @@ interface PersistedRomRecord {
   key: string;
   name: string;
   bytes: ArrayBuffer;
+  pageNames?: RomRecord["pageNames"];
   updatedAt: number;
 }
 
@@ -157,6 +158,7 @@ export class IndexedDbBackend implements StorageBackend {
       return validateRomRecord({
         name: stored.name,
         bytes: new Uint8Array(stored.bytes),
+        pageNames: stored.pageNames,
         updatedAt: stored.updatedAt,
       });
     } finally {
@@ -176,6 +178,7 @@ export class IndexedDbBackend implements StorageBackend {
         key,
         name: copy.name,
         bytes: buffer,
+        pageNames: copy.pageNames,
         updatedAt: copy.updatedAt ?? Date.now(),
       };
       transaction.objectStore(ROM_STORE).put(persisted);

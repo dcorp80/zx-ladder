@@ -1,11 +1,14 @@
 import type { LibraryFile, StoredFile } from "../files/library";
 export const ROM_SIZE = 0x4000;
+export type RomSlot = 0 | 1;
 
 export interface RomRecord {
   /** The browser file name, or a user-facing name supplied by a caller. */
   name: string;
   /** A private copy of a 16 KiB ROM or complete 32 KiB ROM pair. */
   bytes: Uint8Array;
+  /** Labels for a complete Spectrum ROM pair; null marks an empty slot. */
+  pageNames?: readonly [string | null, string | null];
   updatedAt?: number;
 }
 
@@ -30,6 +33,9 @@ export function cloneRomRecord(record: RomRecord): RomRecord {
   return {
     name: record.name,
     bytes: new Uint8Array(record.bytes),
+    pageNames: record.pageNames
+      ? [record.pageNames[0], record.pageNames[1]]
+      : undefined,
     updatedAt: record.updatedAt,
   };
 }
@@ -48,9 +54,19 @@ export function validateRomRecord(record: RomRecord): RomRecord {
   if (!record || typeof record.name !== "string") {
     throw new Error("Stored ROM metadata is invalid.");
   }
+  const names = record.pageNames;
+  if (
+    names !== undefined &&
+    (!Array.isArray(names) ||
+      names.length !== 2 ||
+      names.some((name) => name !== null && typeof name !== "string"))
+  ) {
+    throw new Error("Stored ROM page metadata is invalid.");
+  }
   return {
     name: record.name || "selected.rom",
     bytes: validateRomBytes(record.bytes),
+    pageNames: names ? [names[0], names[1]] : undefined,
     updatedAt: record.updatedAt,
   };
 }

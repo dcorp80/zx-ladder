@@ -14,49 +14,51 @@ export const MachineSection: Component = () => {
   return (
     <SectionFrame
       title="Machine"
-      subtitle={`${store.rom()?.bytes.length === 32768 ? "128K" : "48K"} · no contention`}
+      subtitle={`${store.status().active48kMode ? "48K" : "128K"} · no contention`}
       defaultFolded={false}
       actions={
-        <span
-          class="status-pill"
-          classList={{ "is-running": store.isRunning() }}
-        >
-          {store.disk()?.romRequired
-            ? "TR-DOS ROM required"
-            : store.isRunning()
-              ? "running"
-              : "paused"}
-        </span>
+        <>
+          <span
+            class="status-pill"
+            classList={{ "is-running": store.isRunning() }}
+          >
+            {store.disk()?.romRequired
+              ? "TR-DOS ROM required"
+              : store.isRunning()
+                ? "running"
+                : "paused"}
+          </span>
+          <div class="machine-header-controls">
+            <button
+              type="button"
+              class="btn btn-accent"
+              onClick={() => (store.isRunning() ? store.pause() : store.run())}
+              disabled={!store.machine()}
+            >
+              {store.isRunning() ? "Pause" : "Run"}
+            </button>
+            <button
+              type="button"
+              class="btn"
+              onClick={() => store.stepFrame()}
+              disabled={!store.machine() || store.isRunning()}
+            >
+              Step frame
+            </button>
+            <ResetButton />
+            <button
+              type="button"
+              class="btn btn-danger"
+              onClick={() => store.coldBoot()}
+              disabled={!store.rom() || store.filesBusy()}
+            >
+              Cold boot
+            </button>
+          </div>
+        </>
       }
     >
       <div class="machine-controls">
-        <div class="control-row control-row-primary">
-          <button
-            type="button"
-            class="btn btn-accent"
-            onClick={() => (store.isRunning() ? store.pause() : store.run())}
-            disabled={!store.machine()}
-          >
-            {store.isRunning() ? "Pause" : "Run"}
-          </button>
-          <button
-            type="button"
-            class="btn"
-            onClick={() => store.stepFrame()}
-            disabled={!store.machine() || store.isRunning()}
-          >
-            Step frame
-          </button>
-          <ResetButton />
-          <button
-            type="button"
-            class="btn btn-danger"
-            onClick={() => store.coldBoot()}
-            disabled={!store.rom() || store.isRunning()}
-          >
-            Cold boot
-          </button>
-        </div>
         <div class="control-row">
           <label class="setting-row setting-check">
             <input
@@ -81,18 +83,14 @@ export const MachineSection: Component = () => {
         <label class="setting-row setting-check">
           <input
             type="checkbox"
-            checked={store.decodeFd()}
-            title="FD also matches FFFD/BFFD sound ports; use standard 128K for the bundled 128K ROM."
-            onChange={(event) => store.setDecodeFd(event.currentTarget.checked)}
+            checked={store.mode48k()}
+            onChange={(event) => store.set48kMode(event.currentTarget.checked)}
           />
-          <span>
-            Decode paging port by low byte (FD instead of standard 128K
-            decoding)
-          </span>
+          <span>48K mode</span>
         </label>
         <p class="muted">
-          FD also matches FFFD/BFFD sound ports. Use standard 128K for the
-          bundled 128K ROM.
+          Applies on Reset or Cold boot: selects the 48K ROM and locks memory
+          paging.
         </p>
         <label class="setting-row setting-check">
           <input

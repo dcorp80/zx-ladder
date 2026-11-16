@@ -39,6 +39,40 @@ function fixture(loading = true, length = 3) {
 }
 const bytes = new Uint8Array([5, 0, 255, 1, 2, 3, 255]);
 
+function paired48Rom() {
+  const rom = new Uint8Array(32768).fill(0xff);
+  rom.set(new Uint8Array(readFileSync("public/roms/48.rom")), 16384);
+  return rom;
+}
+
+it("resets and loads through a supported ROM1 when ROM0 is empty", () => {
+  const m = createMachine({ rom: paired48Rom(), mode48k: true });
+  expect(m.tape.supports128Menu).toBe(false);
+  m.loadTape(basicTapFixture(), "paired48.tap");
+  expect(m.cpu.bus.nRESET).toBe(0);
+  expect(m.tape.status).toBe("paired48.tap: waiting for BASIC…");
+  for (let i = 0; i < 300 && m.memory.read(0x8000) !== 42; i++)
+    m.advanceFrame();
+  expect(m.memory.read(0x8000)).toBe(42);
+  expect(m.tape.status).toBe("Block 2/2 loaded; end of tape.");
+  expect(m.mcu.latch).toBe(0x30);
+}, 30000);
+
+it("rejects Load and Run before reset when the selected reset ROM is unsupported", () => {
+  const m = createMachine({ rom: paired48Rom(), mode48k: true });
+  m.mountTape(basicTapFixture(), "mounted.tap");
+  const catalog = m.tapeState.catalog;
+  m.set48kMode(false);
+  expect(() => m.loadTape(basicTapFixture(), "replacement.tap")).toThrow(
+    "not supported",
+  );
+  expect(() => m.runTape(0)).toThrow("not supported");
+  expect(m.cpu.bus.nRESET).toBe(1);
+  expect(m.mcu.latch).toBe(0x30);
+  expect(m.tapeState.name).toBe("mounted.tap");
+  expect(m.tapeState.catalog).toBe(catalog);
+});
+
 it.each([false, true])(
   "manually mounts TAP/TZX and loads twice from BASIC without autotyping (turbo=%s)",
   (cpu7) => {

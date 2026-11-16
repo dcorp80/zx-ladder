@@ -38,7 +38,7 @@ import { IO_MAX_BATCH_TICKS } from "./ioCapture";
 export interface MachineOptions {
   rom: Uint8Array;
   cpu7?: boolean;
-  decodeFd?: boolean;
+  mode48k?: boolean;
   rtcEnabled?: boolean;
   lateInt?: boolean;
   videoPreset?: VideoPreset;
@@ -177,6 +177,7 @@ export class Machine implements ClockContext {
   /** Active fraction over the last completed sampling window, in percent. */
   cpuLoad: number | null = null;
   private requestedTurbo: boolean;
+  private mode48k: boolean;
   private coldClock = true;
   private resetHeld = false;
   private resetHalfCycles = 0;
@@ -225,6 +226,7 @@ export class Machine implements ClockContext {
     this.turbo = options.cpu7 ?? false;
     this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
+    this.mode48k = options.mode48k ?? false;
     this.memory = new BankedMemory(options.rom);
     this.mixer = new SoundMixer(this.memory.expanded);
     if (this.memory.expanded) {
@@ -250,19 +252,28 @@ export class Machine implements ClockContext {
           : this.memory.readScreen(address),
     };
     this.dos = new TrdosService(this.memory, this.disk);
-    this.tape = new Spectrum48Tape(this.memory, this.keyboard);
+    const is48k = () =>
+      !this.memory.expanded || (this.mcu.latch & 0x30) === 0x30;
+    this.tape = new Spectrum48Tape(
+      this.memory,
+      this.keyboard,
+      undefined,
+      is48k,
+    );
     this.diskTape = new Spectrum48Tape(
       this.memory,
       this.keyboard,
       "disk-auto-load",
+      is48k,
     );
     this.capsLock = new Spectrum48CapsLock(this.memory, this.keyboard);
     this.rtc.enabled = options.rtcEnabled ?? true;
-    this.mcu = new Mcu(this.memory, options.decodeFd, () => {
+    this.mcu = new Mcu(this.memory, () => {
       this.tape.romChanged();
       this.diskTape.romChanged();
       this.capsLock.reset();
     });
+    this.mcu.reset(this.mode48k ? 0x30 : 0);
     this.border = new BorderDevice(
       this.config.borderPort.mask,
       this.config.borderPort.value,
@@ -381,8 +392,12 @@ export class Machine implements ClockContext {
   get memoryMapping() {
     return this.memory.mapping;
   }
-  setDecodeFd(enabled: boolean): void {
-    this.mcu.decodeFd = enabled;
+  get active48kMode(): boolean {
+    return !this.memory.expanded || (this.mcu.latch & 0x30) === 0x30;
+  }
+  /** Select the ROM and paging lock to apply on the next reset. */
+  set48kMode(enabled: boolean): void {
+    this.mode48k = enabled;
   }
   setTurbo(enabled: boolean): void {
     this.requestedTurbo = enabled;
@@ -405,7 +420,7 @@ export class Machine implements ClockContext {
   setReset(pressed: boolean): void {
     if (pressed && !this.resetHeld) {
       this.resetHalfCycles = 6;
-      this.mcu.reset();
+      this.mcu.reset(this.mode48k ? 0x30 : 0);
       this.rtc.reset();
       this.video.extendedMode = false;
       this.disk.reset();
@@ -469,7 +484,7 @@ export class Machine implements ClockContext {
     this.diskTape.eject();
   }
   runTape(index: number): void {
-    this.validateTapeLoader(this.tape);
+    this.validateTapeLoader(this.tape, true);
     this.tape.assertRunnable(index);
     this.setReset(true);
     this.setReset(false);
@@ -492,10 +507,14 @@ export class Machine implements ClockContext {
     name: string,
     reset: boolean,
   ): void {
-    this.validateTapeLoader(service);
+    const willReset = reset || this.active48kMode || this.tape.supports128Menu;
+    this.validateTapeLoader(service, willReset);
     // Validate before touching the running machine.
-    parseTape(bytes, name, this.memory.expanded);
-    if (reset || !this.memory.expanded || this.tape.supports128Menu) {
+    const is128 =
+      this.memory.expanded &&
+      (willReset ? !this.mode48k : (this.mcu.latch & 0x30) !== 0x30);
+    parseTape(bytes, name, is128);
+    if (willReset) {
       this.setReset(true);
       this.setReset(false);
     }
@@ -503,13 +522,14 @@ export class Machine implements ClockContext {
     service.mount(bytes, name);
   }
 
-  private validateTapeLoader(service: Spectrum48Tape): void {
-    if (!service.canMount)
+  private validateTapeLoader(service: Spectrum48Tape, reset = false): void {
+    const romIndex = reset
+      ? this.memory.expanded && this.mode48k
+        ? 1
+        : 0
+      : this.memory.romIndex;
+    if (!service.canMountRom(romIndex))
       throw new Error("This ROM is not supported by the flash tape loader.");
-    if (this.tape.supports128Menu && this.mcu.decodeFd)
-      throw new Error(
-        "Select standard 128K paging (uncheck low-byte FD) before loading with the 128K ROM.",
-      );
   }
 
   private cpuEdge(afterBorder: boolean): void {

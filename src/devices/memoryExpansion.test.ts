@@ -53,21 +53,17 @@ it("selects and protects both ROMs, applies the locking write, and resets withou
   bus.writeIo(0x7ffd, 7);
   expect(memory.read(0xc000)).toBe(99);
 });
-it("switches standard 128K / low-byte FD decoding live, without unlocking or changing state", () => {
+it("uses standard 128K decoding without claiming AY ports", () => {
   const { bus, mcu } = fixture();
   for (const address of [0xfffd, 0xbffd, 0x7fff, 0x7ffe])
     bus.writeIo(address, 3);
   expect(mcu.latch).toBe(0);
-  bus.writeIo(0x7ffd, 1);
-  mcu.decodeFd = true;
-  expect(mcu.latch).toBe(1);
-  for (const address of [0xfd, 0x1ffd, 0xfffd]) {
+  for (const address of [0xfd, 0x1ffd, 0x7ffd]) {
     bus.writeIo(address, 3);
     expect(mcu.latch).toBe(3);
     bus.writeIo(address, 0);
   }
   bus.writeIo(0xfd, 0x25);
-  mcu.decodeFd = false;
   bus.writeIo(0x7ffd, 0);
   expect(mcu.latch).toBe(0x25);
   expect(bus.readIo(0x7ffd)).toBe(255);
@@ -92,7 +88,7 @@ it("preserves CPU interception while video reads the independently selected phys
   expect(memory.read(0xc000)).toBe(255);
 });
 it("keeps paging across raster changes and clears it on warm reset", () => {
-  const m = createMachine({ rom: new Uint8Array(32768), decodeFd: true });
+  const m = createMachine({ rom: new Uint8Array(32768) });
   m.bus.writeIo(0xfd, 0x3f);
   m.memory.write(0xc000, 91);
   m.setVideoPreset(LVIV_VIDEO_PRESET);
@@ -102,12 +98,64 @@ it("keeps paging across raster changes and clears it on warm reset", () => {
   expect(m.mcu.latch).toBe(0);
   expect(m.memory.ramPages[7][0]).toBe(91);
 });
-it("does not register the MCU in 48K mode", () => {
-  const m = createMachine({ rom: new Uint8Array(16384), decodeFd: true });
-  m.bus.writeIo(0xfd, 0x3f);
-  expect(m.mcu.latch).toBe(0);
-  expect(m.memory.expanded).toBe(false);
+it("cold boots 48K mode in ROM 1 with RAM 0, screen 5 and paging locked", () => {
+  const rom = new Uint8Array(32768).fill(0x76);
+  rom.fill(0x42, 16384);
+  const m = createMachine({ rom, mode48k: true });
+  expect(m.active48kMode).toBe(true);
+  expect(m.mcu.latch).toBe(0x30);
+  expect(m.memoryMapping).toEqual({ ramPage: 0, romPage: 1, screenPage: 5 });
+  expect(m.memory.read(0)).toBe(0x42);
+  m.bus.writeIo(0x7ffd, 0x0f);
+  expect(m.mcu.latch).toBe(0x30);
+  expect(m.memoryMapping).toEqual({ ramPage: 0, romPage: 1, screenPage: 5 });
 });
+it("applies 48K mode changes on reset and preserves RAM while locking or unlocking paging", () => {
+  const m = createMachine({ rom: new Uint8Array(32768) });
+  expect(m.active48kMode).toBe(false);
+  m.bus.writeIo(0x7ffd, 0x10);
+  expect(m.active48kMode).toBe(false);
+  for (let page = 0; page < 8; page++) m.memory.ramPages[page][0] = page + 10;
+  m.bus.writeIo(0x7ffd, 0x3f);
+  expect(m.active48kMode).toBe(true);
+  m.set48kMode(true);
+  expect(m.mcu.latch).toBe(0x3f);
+  expect(m.memoryMapping).toEqual({ ramPage: 7, romPage: 1, screenPage: 7 });
+  m.setReset(true);
+  m.setReset(false);
+  expect(m.mcu.latch).toBe(0x30);
+  expect(m.memoryMapping).toEqual({ ramPage: 0, romPage: 1, screenPage: 5 });
+  m.bus.writeIo(0x7ffd, 7);
+  expect(m.mcu.latch).toBe(0x30);
+  m.setVideoPreset(LVIV_VIDEO_PRESET);
+  expect(m.mcu.latch).toBe(0x30);
+  m.set48kMode(false);
+  m.bus.writeIo(0x7ffd, 7);
+  expect(m.mcu.latch).toBe(0x30);
+  m.setReset(true);
+  m.setReset(false);
+  expect(m.mcu.latch).toBe(0);
+  expect(m.active48kMode).toBe(false);
+  expect(m.memoryMapping).toEqual({ ramPage: 0, romPage: 0, screenPage: 5 });
+  m.bus.writeIo(0x7ffd, 7);
+  expect(m.mcu.latch).toBe(7);
+  expect(m.memory.ramPages.map((page) => page[0])).toEqual([
+    10, 11, 12, 13, 14, 15, 16, 17,
+  ]);
+});
+it.each([false, true])(
+  "retains fixed mapping without an MCU port for a standalone 48K ROM (mode48k=%s)",
+  (mode48k) => {
+    const m = createMachine({ rom: new Uint8Array(16384).fill(0x76), mode48k });
+    m.bus.writeIo(0x7ffd, 0x3f);
+    m.setReset(true);
+    m.setReset(false);
+    expect(m.memoryMapping).toEqual({ ramPage: 0, romPage: 0, screenPage: 5 });
+    expect(m.memory.read(0)).toBe(0x76);
+    expect(m.memory.expanded).toBe(false);
+    expect(m.active48kMode).toBe(true);
+  },
+);
 it("boots the supplied 128K ROM to a stable menu without modifying either ROM page", () => {
   const rom = new Uint8Array(readFileSync("public/roms/128.rom"));
   const m = createMachine({ rom });

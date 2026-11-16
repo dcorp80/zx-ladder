@@ -78,7 +78,7 @@ describe("ZX Ladder shell", () => {
     const backend = new MemoryBackend({ persistent: true });
     const first = await mount(backend);
     expect(first.store.isRunning()).toBe(false);
-    const bytes = new Uint8Array(ROM_SIZE).fill(0x42);
+    const bytes = new Uint8Array(ROM_SIZE * 2).fill(0x42);
     await first.store.importRom(new File([bytes], "saved.rom"));
     first.store.coldBoot();
     expect(first.store.rom()?.bytes).toEqual(bytes);
@@ -135,7 +135,7 @@ describe("ZX Ladder shell", () => {
       new File([new Uint8Array(ROM_SIZE)], "welcome.rom"),
     );
     expect(mounted.store.rom()?.name).toBe("welcome.rom");
-    expect((await backend.loadRom())?.bytes.byteLength).toBe(ROM_SIZE);
+    expect((await backend.loadRom())?.bytes.byteLength).toBe(ROM_SIZE * 2);
 
     fireEvent.click(
       mounted.mounted.getByRole("button", { name: "Step frame" }),

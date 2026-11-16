@@ -13,20 +13,25 @@ it("restores configuration and the saved ROM paused", async () => {
   expect(first.theme()).toBe("system");
   first.setVideoPreset("lviv");
   first.setTurbo(true);
-  first.setDecodeFd(true);
+  first.set48kMode(true);
   first.setFreeRun(true);
   first.setShowBorder(false);
   first.setTheme("dark");
   first.setKeyboardLayout("pc-full-size");
-  await first.importRom(new File([new Uint8Array(16384)], "saved.rom"));
+  await first.importRom(new File([new Uint8Array(32768)], "saved.rom"));
   first.dispose();
   const fresh = await createAppStore(deps);
   try {
     expect(fresh.videoPreset().id).toBe("lviv");
     expect(fresh.machine()?.height).toBe(312);
     expect(fresh.machine()?.cpu7).toBe(true);
-    expect(fresh.decodeFd()).toBe(true);
-    expect(loadConfig().decodeFd).toBe(true);
+    expect(fresh.mode48k()).toBe(true);
+    expect(loadConfig().mode48k).toBe(true);
+    expect(fresh.machine()?.memoryMapping).toEqual({
+      ramPage: 0,
+      romPage: 1,
+      screenPage: 5,
+    });
     expect(fresh.freeRun()).toBe(true);
     expect(fresh.showBorder()).toBe(false);
     expect(fresh.theme()).toBe("dark");
@@ -46,6 +51,8 @@ it("validates persisted fields, malformed JSON, and future configuration version
   const defaults = sanitizeConfig(null);
   expect(defaults.theme).toBe("system");
   expect(defaults.showTechnicalFields).toBe(true);
+  expect(defaults.mode48k).toBe(false);
+  expect(sanitizeConfig({ version: 1, mode48k: true }).mode48k).toBe(true);
   expect(sanitizeConfig({ version: 1 }).showTechnicalFields).toBe(true);
   expect(
     sanitizeConfig({ version: 1, showTechnicalFields: false })
@@ -56,6 +63,7 @@ it("validates persisted fields, malformed JSON, and future configuration version
       version: 1,
       videoPreset: "unknown",
       turbo: "true",
+      mode48k: "true",
       freeRun: 1,
       showTechnicalFields: "false",
       showBorder: null,

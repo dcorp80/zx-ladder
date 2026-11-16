@@ -62,6 +62,7 @@ it("keeps drive B metadata, exports and disk actions independent through the wor
   const machine = new WorkerMachine({
     rom: new Uint8Array(readFileSync("public/roms/48.rom")),
   });
+  expect(machine.active48kMode).toBe(true);
   const a = diskFixture(),
     b = diskFixture();
   a[5000] = 33;
@@ -305,6 +306,7 @@ it("reports the selected RAM, ROM and screen after CPU paging and reset", async 
   rom.set(program, 16384);
   const machine = new WorkerMachine({ rom });
   try {
+    expect(machine.active48kMode).toBe(false);
     await machine.stepPixels(1000);
     const stopped = await machine.pauseExecution();
     expect(stopped.memoryMapping).toEqual({
@@ -313,6 +315,7 @@ it("reports the selected RAM, ROM and screen after CPU paging and reset", async 
       screenPage: 7,
     });
     expect(machine.memoryMapping).toEqual(stopped.memoryMapping);
+    expect(machine.active48kMode).toBe(true);
     machine.setReset(true);
     await machine.pauseExecution();
     expect(machine.memoryMapping).toEqual({
@@ -320,6 +323,39 @@ it("reports the selected RAM, ROM and screen after CPU paging and reset", async 
       romPage: 0,
       screenPage: 5,
     });
+    expect(machine.active48kMode).toBe(false);
+  } finally {
+    machine.dispose();
+  }
+});
+it("forwards 48K boot mode and defers mode changes until reset", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const rom = new Uint8Array(32768);
+  // Select RAM 3, ROM 1 and screen 7, then lock. Both ROMs end in HALT.
+  const program = [0x3e, 0x3b, 0x01, 0xfd, 0x7f, 0xed, 0x79, 0x76];
+  rom.set(program);
+  rom.set(program, 16384);
+  const machine = new WorkerMachine({ rom, mode48k: true });
+  const fixed48k = { ramPage: 0, romPage: 1, screenPage: 5 };
+  try {
+    expect(machine.active48kMode).toBe(true);
+    expect((await machine.pauseExecution()).memoryMapping).toEqual(fixed48k);
+    await machine.stepPixels(1000);
+    expect(machine.memoryMapping).toEqual(fixed48k);
+    machine.set48kMode(false);
+    expect((await machine.pauseExecution()).memoryMapping).toEqual(fixed48k);
+    expect(machine.active48kMode).toBe(true);
+    machine.setReset(true);
+    machine.setReset(false);
+    expect((await machine.pauseExecution()).active48kMode).toBe(false);
+    expect(machine.active48kMode).toBe(false);
+    await machine.stepPixels(1000);
+    expect(machine.memoryMapping).toEqual({
+      ramPage: 3,
+      romPage: 1,
+      screenPage: 7,
+    });
+    expect(machine.active48kMode).toBe(true);
   } finally {
     machine.dispose();
   }

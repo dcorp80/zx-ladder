@@ -20,7 +20,7 @@ export type Command =
   | {
       type: "init";
       rom: Uint8Array;
-      decodeFd?: boolean;
+      mode48k?: boolean;
       rtcEnabled?: boolean;
       preset: VideoPreset;
       turbo: boolean;
@@ -37,7 +37,7 @@ export type Command =
         | "technicalFields"
         | "extendedMode"
         | "turbo"
-        | "decodeFd"
+        | "mode48k"
         | "rtcEnabled"
         | "reset"
         | "lateInt"
@@ -89,6 +89,7 @@ export interface MachineState {
   extendedMode?: boolean;
   showTechnicalFields: boolean;
   cpuLoad: number | null;
+  active48kMode: boolean;
   memoryMapping: MemoryMapping;
   tape: string;
   tapeState?: Omit<TapeState, "catalog"> & { catalog?: TapeState["catalog"] };

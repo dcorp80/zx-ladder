@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
 import { TZX_SIGNATURE } from "../files/tzx";
 import { createMachine } from "../machine/machine";
+import { asTzx } from "../test/tape";
 import { TAPE_ROM_SIGNATURE } from "./spectrum48Tape";
 
 const firmware = new Uint8Array(readFileSync("public/roms/128.rom"));
@@ -66,6 +67,19 @@ it.each([false, true])(
   30000,
 );
 
+it("loads BASIC through the 48K ROM when the bundled pair is locked in 48K mode", () => {
+  const m = createMachine({ rom: firmware, mode48k: true });
+  m.loadTape(basicTape(), "basic48.tap");
+  expect(m.tape.status).toBe("basic48.tap: waiting for BASIC…");
+  for (let i = 0; i < 400 && m.memory.read(0x8000) !== 42; i++)
+    m.advanceFrame();
+  expect(m.tape.status).toBe("Block 2/2 loaded; end of tape.");
+  expect(m.memory.read(0x8000)).toBe(42);
+  expect(m.mcu.latch).toBe(0x30);
+  expect(m.memoryMapping).toEqual({ ramPage: 0, romPage: 1, screenPage: 5 });
+  expect(m.memory.romPages.flat()).toEqual(Array.from(firmware));
+}, 30000);
+
 it("loads successive blocks into all eight banks through real CPU paging and ROM calls", () => {
   const pair = new Uint8Array(32768);
   for (const base of [0, 16384]) {
@@ -120,15 +134,12 @@ it("loads successive blocks into all eight banks through real CPU paging and ROM
   expect(m.cpu.snapshot().sp).toBe(0xb000);
 });
 
-it("rejects invalid tape and incompatible paging before resetting an active 128K machine", () => {
+it("rejects invalid tape before resetting an active 128K machine", () => {
   const m = createMachine({ rom: firmware });
   m.mcu.write(7);
   expect(() => m.loadTape(new Uint8Array([1]), "bad.tap")).toThrow();
   expect(m.mcu.latch).toBe(7);
   expect(m.cpu.bus.nRESET).toBe(1);
-  m.setDecodeFd(true);
-  expect(() => m.loadTape(basicTape(), "basic.tap")).toThrow("standard 128K");
-  expect(m.mcu.latch).toBe(7);
 });
 
 it("loads TZX past a 48K-only stop marker in 128K mode", () => {
@@ -146,6 +157,58 @@ it("loads TZX past a 48K-only stop marker in 128K mode", () => {
   expect(m.memory.read(0x8000)).toBe(42);
   expect(m.tape.status).toBe("Block 2/2 loaded; end of tape.");
 }, 30000);
+
+it("uses live ROM selection and paging lock for TZX 48K stop markers", () => {
+  const tzx = asTzx(basicTape());
+  const conditional = new Uint8Array([
+    ...tzx,
+    0x2a,
+    0,
+    0,
+    0,
+    0,
+    ...tzx.subarray(10),
+  ]);
+  const m = createMachine({ rom: firmware });
+  m.mcu.write(0x10);
+  m.set48kMode(true); // The pending reset mode does not affect Mount.
+  m.mountTape(conditional, "conditional.tzx");
+  expect(m.tapeState.catalog).toHaveLength(4);
+  expect(m.mcu.latch).toBe(0x10);
+  m.mcu.write(0x30);
+  m.mountTape(conditional, "conditional.tzx");
+  expect(m.tapeState.catalog).toHaveLength(2);
+  expect(m.mcu.latch).toBe(0x30);
+});
+
+it("validates TZX against the reset mode before changing the current mapping", () => {
+  const tzx = asTzx(basicTape());
+  const conditional = new Uint8Array([
+    ...tzx.subarray(0, 10),
+    0x2a,
+    0,
+    0,
+    0,
+    0,
+    ...tzx.subarray(10),
+  ]);
+  const m = createMachine({ rom: firmware });
+  m.mcu.write(7);
+  m.set48kMode(true);
+  expect(() => m.loadTape(conditional, "conditional.tzx")).toThrow(
+    "stops before any loadable data",
+  );
+  expect(m.mcu.latch).toBe(7);
+  expect(m.cpu.bus.nRESET).toBe(1);
+  expect(m.tapeState.name).toBeNull();
+  m.setReset(true);
+  m.setReset(false);
+  expect(m.mcu.latch).toBe(0x30);
+  m.set48kMode(false);
+  m.loadTape(conditional, "conditional.tzx");
+  expect(m.mcu.latch).toBe(0);
+  expect(m.tapeState.catalog).toHaveLength(2);
+});
 
 it("restarts loading from a running 128K ROM context and rewinds the mounted tape", () => {
   const m = createMachine({ rom: firmware });

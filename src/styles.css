@@ -160,6 +160,7 @@ h1 {
 
 .section-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-height: 44px;
@@ -189,9 +190,21 @@ h1 {
 
 .section-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   margin-left: auto;
+  min-width: 0;
+}
+
+.machine-header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .section-body {
@@ -381,6 +394,33 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.rom-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+
+.rom-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.rom-slot legend {
+  padding: 0 4px;
+  font-weight: 700;
+}
+
+.rom-slot .file-picker:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .rom-picker-row {

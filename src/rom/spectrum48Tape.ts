@@ -28,7 +28,10 @@ export class Spectrum48Tape {
   }
   readonly supports128Menu: boolean;
   get canMount(): boolean {
-    return this.supports128Menu || this.supported;
+    return this.canMountRom(this.memory.romIndex);
+  }
+  canMountRom(index: number): boolean {
+    return this.supports128Menu || this.compatible[index] === true;
   }
   status = "No tape mounted.";
   private name: string | null = null;
@@ -63,6 +66,7 @@ export class Spectrum48Tape {
     private readonly memory: BankedMemory,
     private readonly keyboard: KeyboardDevice,
     private readonly owner = OWNER,
+    private readonly is48k = () => !memory.expanded,
   ) {
     this.compatible = memory.romPages.map(
       (rom) =>
@@ -87,7 +91,7 @@ export class Spectrum48Tape {
   mount(bytes: Uint8Array, name: string, autoLoad = true): void {
     if (!this.canMount)
       throw new Error("This ROM is not supported by the flash tape loader.");
-    const blocks = parseTape(bytes, name, this.memory.expanded);
+    const blocks = parseTape(bytes, name, !this.is48k());
     this.name = name;
     this.catalog = tapeCatalog(blocks);
     this.blocks = blocks;

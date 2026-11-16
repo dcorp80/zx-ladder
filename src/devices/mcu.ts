@@ -8,7 +8,6 @@ export class Mcu implements Device {
   latch = 0;
   constructor(
     private readonly storage: BankedMemory,
-    public decodeFd = false,
     private readonly romChanged: () => void = () => {},
   ) {
     this.io = [
@@ -16,8 +15,8 @@ export class Mcu implements Device {
         // Standard 128K/Pentagon paging decodes only A15 and A1.
         lowMask: 2,
         lowValue: 0,
-        selected: (address) =>
-          this.decodeFd ? (address & 255) === 0xfd : (address & 0x8000) === 0,
+        highMask: 0x80,
+        highValue: 0,
         write: (_address, value) => this.write(value),
       },
     ];
@@ -31,8 +30,8 @@ export class Mcu implements Device {
     this.storage.map(next);
     if (changedRom) this.romChanged();
   }
-  reset(): void {
-    this.latch = 0;
-    this.storage.map(0);
+  reset(value = 0): void {
+    this.latch = value & 0x3f;
+    this.storage.map(this.latch);
   }
 }

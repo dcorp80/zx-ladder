@@ -31,16 +31,16 @@ import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
 import type { RasterTiming } from "../machine/config";
 import { createMachine } from "../machine/machine";
 import { loadBundledRom } from "../rom/bundledRom";
-import { complete128Rom } from "../rom/romPair";
+import { normalizeRomPair, replaceRomPage } from "../rom/romPair";
 import { ROM_REQUIRED } from "../rom/trdos";
 import { createHostLoop } from "../runloop/hostLoop";
 import {
   openDefaultBackend,
   ROM_SIZE,
   type RomRecord,
+  type RomSlot,
   type StorageBackend,
   validateRomBytes,
-  validateRomRecord,
 } from "../storage";
 import {
   applyTheme,
@@ -105,9 +105,10 @@ export interface MachineLike {
   readonly showTechnicalFields?: boolean;
   readonly cpuLoad: number | null;
   readonly memoryMapping?: MemoryMapping;
+  readonly active48kMode?: boolean;
   readonly hasFrame: boolean;
   setLateInt(enabled: boolean): void;
-  setDecodeFd?(enabled: boolean): void;
+  set48kMode?(enabled: boolean): void;
   setExtendedMode?(enabled: boolean): void;
   setShowTechnicalFields?(enabled: boolean): void;
   setRtcEnabled?(enabled: boolean): void;
@@ -136,6 +137,7 @@ export interface RuntimeStatus {
   extendedMode?: boolean;
   cpuLoad: number | null;
   memoryMapping: MemoryMapping | null;
+  active48kMode: boolean;
   framePosition: number;
   hasFrame: boolean;
   width: number;
@@ -149,12 +151,12 @@ export interface StorageStatus {
 }
 
 export interface CreateStoreDeps {
-  loadBundledRom?: () => Promise<RomRecord | null>;
+  loadBundledRom?: (name?: "48.rom" | "128.rom") => Promise<RomRecord | null>;
   backend?: StorageBackend;
   machineFactory?: (options: {
     rom: Uint8Array;
     cpu7?: boolean;
-    decodeFd?: boolean;
+    mode48k?: boolean;
     rtcEnabled?: boolean;
     lateInt?: boolean;
     videoPreset?: VideoPreset;
@@ -228,7 +230,7 @@ export interface Store {
   readonly fps: Accessor<number | null>;
   readonly videoPreset: Accessor<VideoPreset>;
   readonly turbo: Accessor<boolean>;
-  readonly decodeFd: Accessor<boolean>;
+  readonly mode48k: Accessor<boolean>;
   readonly rtcEnabled: Accessor<boolean>;
   readonly freeRun: Accessor<boolean>;
   readonly showTechnicalFields: Accessor<boolean>;
@@ -244,7 +246,7 @@ export interface Store {
   coldBoot(): void;
   setVideoPreset(id: string): void;
   setLateInt(enabled: boolean): void;
-  setDecodeFd(enabled: boolean): void;
+  set48kMode(enabled: boolean): void;
   setRtcEnabled(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
   setFreeRun(enabled: boolean): void;
@@ -253,8 +255,9 @@ export interface Store {
   setShowTechnicalFields(enabled: boolean): void;
   setShowBorder(enabled: boolean): void;
   setTheme(theme: Theme): void;
-  importRom(file: File, as128?: boolean): Promise<void>;
+  importRom(file: File, slot?: RomSlot): Promise<void>;
   useBundled128Rom(): Promise<void>;
+  useBundled48Rom(): Promise<void>;
   refresh(): void;
   clearError(): void;
   dispose(): void;
@@ -274,6 +277,11 @@ export async function createAppStore(
   const initialVideoPreset =
     VIDEO_PRESETS.find((p) => p.id === config.videoPreset) ??
     PENTAGON_VIDEO_PRESET;
+  const readBundledRom = async (name: "48.rom" | "128.rom") => {
+    const record = await (deps.loadBundledRom ?? loadBundledRom)(name);
+    if (!record) throw new Error(`Bundled ${name} could not be loaded.`);
+    return record;
+  };
   const makeMachine =
     deps.machineFactory ??
     ((options) =>
@@ -402,6 +410,7 @@ export async function createAppStore(
       ticks: 0,
       cpuLoad: null,
       memoryMapping: null,
+      active48kMode: true,
       framePosition: 0,
       hasFrame: false,
       width: initialVideoPreset.width,
@@ -418,7 +427,7 @@ export async function createAppStore(
     const [fps, setFps] = createSignal<number | null>(null);
     const [videoPreset, setVideoPresetSignal] =
       createSignal<VideoPreset>(initialVideoPreset);
-    const [decodeFd, setDecodeFdSignal] = createSignal(config.decodeFd);
+    const [mode48k, set48kModeSignal] = createSignal(config.mode48k);
     const [rtcEnabled, setRtcEnabledSignal] = createSignal(config.rtcEnabled);
     const [turbo, setTurboSignal] = createSignal(config.turbo);
     const [freeRun, setFreeRunSignal] = createSignal(config.freeRun);
@@ -489,7 +498,7 @@ export async function createAppStore(
           ayMiddle: ayMiddle(),
           videoPreset: videoPreset().id,
           turbo: turbo(),
-          decodeFd: decodeFd(),
+          mode48k: mode48k(),
           rtcEnabled: rtcEnabled(),
           freeRun: freeRun(),
           showTechnicalFields: showTechnicalFields(),
@@ -550,6 +559,7 @@ export async function createAppStore(
           ticks: 0,
           cpuLoad: null,
           memoryMapping: null,
+          active48kMode: true,
           framePosition: 0,
           hasFrame: false,
           width: videoPreset().width,
@@ -568,11 +578,14 @@ export async function createAppStore(
       const running = loop?.isRunning() ?? false;
       const now = performance.now();
       const previous = untrack(status);
+      const active48kMode =
+        active.active48kMode ?? rom()?.bytes.length !== 32768;
       // Reporting is throttled; execution accounting and video presentation are not.
       // A stopped machine always publishes exact values, including pause replies.
       if (
         !running ||
         replaced ||
+        previous.active48kMode !== active48kMode ||
         now - lastMeterUpdate >= MACHINE_METER_REFRESH_MS ||
         previous.hasFrame !== active.hasFrame ||
         previous.width !== active.width ||
@@ -586,6 +599,7 @@ export async function createAppStore(
           extendedMode: active.extendedMode,
           cpuLoad: active.cpuLoad,
           memoryMapping: active.memoryMapping ?? null,
+          active48kMode,
           framePosition: Math.max(0, Math.floor(active.framePosition)),
           hasFrame: active.hasFrame,
           width: active.width,
@@ -605,14 +619,16 @@ export async function createAppStore(
       setFps(null);
     };
 
-    const installMachine = (bytes: Uint8Array, name: string): boolean => {
+    const installMachine = (record: RomRecord): boolean => {
       let next: MachineLike;
+      let selected: RomRecord;
       setError(null);
       try {
+        selected = normalizeRomPair(record);
         next = makeMachine({
-          rom: new Uint8Array(bytes),
+          rom: new Uint8Array(selected.bytes),
           cpu7: turbo(),
-          decodeFd: decodeFd(),
+          mode48k: mode48k(),
           rtcEnabled: rtcEnabled(),
           lateInt: lateInt(),
           videoPreset: videoPreset(),
@@ -626,7 +642,7 @@ export async function createAppStore(
       const selectedDos = dosRom();
       if (selectedDos) void next.setDosRom?.(selectedDos.bytes);
       stopLoop();
-      setRom({ name, bytes: new Uint8Array(bytes), updatedAt: Date.now() });
+      setRom({ ...selected, updatedAt: Date.now() });
       unsubscribeKeyboard?.();
       const previousKeyboard = machine()?.keyboard;
       if (previousKeyboard?.hostCapsLock !== undefined) {
@@ -698,14 +714,15 @@ export async function createAppStore(
       }
     };
 
-    const activateRom = (record: RomRecord): boolean =>
-      installMachine(record.bytes, record.name);
+    const activateRom = (record: RomRecord): boolean => installMachine(record);
     const hasMountedDisk = (active: MachineLike | null) =>
       ([0, 1] as const).some((drive) => !!driveState(active, drive)?.id);
     const activateWithDisk = async (record: RomRecord): Promise<boolean> => {
       const active = machine();
       if (!active?.exportDisk || !hasMountedDisk(active))
         return activateRom(record);
+      const alreadyBusy = filesBusy();
+      const wasRunning = isRunning();
       setFilesBusy(true);
       store.pause();
       try {
@@ -736,6 +753,29 @@ export async function createAppStore(
           );
         refresh();
         return true;
+      } finally {
+        if (active === machine() && wasRunning) store.run();
+        setFilesBusy(alreadyBusy);
+      }
+    };
+
+    const loadRomPage = async (
+      read: () => Promise<RomRecord>,
+      slot: RomSlot,
+      failure: string,
+    ): Promise<void> => {
+      if (filesBusy()) return;
+      setFilesBusy(true);
+      try {
+        const input = await read();
+        const record = replaceRomPage(rom(), input, slot);
+        const wasRunning = isRunning();
+        if (!(await activateWithDisk(record))) return;
+        if (wasRunning) store.run();
+        store.focusScreen();
+        await persistRom(record);
+      } catch (cause) {
+        setError(messageForError(cause, failure));
       } finally {
         setFilesBusy(false);
       }
@@ -1088,11 +1128,11 @@ export async function createAppStore(
       fps,
       videoPreset,
       turbo,
-      decodeFd,
+      mode48k,
       rtcEnabled,
-      setDecodeFd(enabled: boolean) {
-        machine()?.setDecodeFd?.(enabled);
-        setDecodeFdSignal(enabled);
+      set48kMode(enabled: boolean) {
+        machine()?.set48kMode?.(enabled);
+        set48kModeSignal(enabled);
         persistConfig();
       },
       setRtcEnabled(enabled: boolean) {
@@ -1192,13 +1232,18 @@ export async function createAppStore(
           setError("There is no ROM to cold boot.");
           return;
         }
+        const wasRunning = isRunning();
+        const finishBoot = () => {
+          if (wasRunning) store.run();
+          store.focusScreen();
+        };
         if (!hasMountedDisk(machine())) {
-          if (activateRom(selected)) store.focusScreen();
+          if (activateRom(selected)) finishBoot();
           return;
         }
         void (async () => {
           try {
-            if (await activateWithDisk(selected)) store.focusScreen();
+            if (await activateWithDisk(selected)) finishBoot();
           } catch (cause) {
             setError(messageForError(cause, "Cold boot failed."));
           }
@@ -1283,53 +1328,28 @@ export async function createAppStore(
         persistConfig();
       },
       async useBundled128Rom() {
-        if (filesBusy()) return;
-        try {
-          const record = await loadBundledRom("128.rom");
-          record.bytes = await complete128Rom(
-            record.bytes,
-            async () => (await loadBundledRom()).bytes,
-          );
-          if (filesBusy() || !(await activateWithDisk(record))) return;
-          store.focusScreen();
-          await persistRom(record);
-        } catch (cause) {
-          setError(
-            messageForError(cause, "The bundled 128K ROM could not be loaded."),
-          );
-        }
+        await loadRomPage(
+          () => readBundledRom("128.rom"),
+          0,
+          "The bundled 128K ROM could not be loaded.",
+        );
       },
-      async importRom(file: File, as128 = false) {
-        if (filesBusy()) return;
-        let bytes: Uint8Array;
-        try {
-          bytes = validateRomBytes(await file.arrayBuffer());
-          if (as128)
-            bytes = await complete128Rom(
-              bytes,
-              async () => (await loadBundledRom()).bytes,
-            );
-        } catch (cause) {
-          setError(
-            messageForError(
-              cause,
-              `ROM must be exactly ${ROM_SIZE} or ${ROM_SIZE * 2} bytes.`,
-            ),
-          );
-          return;
-        }
-        if (filesBusy()) return;
-        const record = validateRomRecord({
-          name: file.name || "selected.rom",
-          bytes,
-        });
-        try {
-          if (!(await activateWithDisk(record))) return;
-          store.focusScreen();
-          await persistRom(record);
-        } catch (cause) {
-          setError(messageForError(cause, "ROM replacement failed."));
-        }
+      async useBundled48Rom() {
+        await loadRomPage(
+          () => readBundledRom("48.rom"),
+          1,
+          "The bundled 48K ROM could not be loaded.",
+        );
+      },
+      async importRom(file: File, slot: RomSlot = 0) {
+        await loadRomPage(
+          async () => ({
+            name: file.name || "selected.rom",
+            bytes: validateRomBytes(await file.arrayBuffer()),
+          }),
+          slot,
+          "ROM replacement failed.",
+        );
       },
       refresh,
       clearError() {
@@ -1377,7 +1397,7 @@ export async function createAppStore(
       try {
         const saved = await backend.loadRom();
         if (saved) {
-          const record = validateRomRecord(saved);
+          const record = normalizeRomPair(saved);
           if (activateRom(record)) {
             setStorage({
               state: backend.persistent ? "saved" : "session-only",
@@ -1386,6 +1406,8 @@ export async function createAppStore(
                 ? "Restored ROM from browser storage."
                 : "Restored ROM in session-only mode; browser persistence is unavailable.",
             });
+            if (saved.bytes.length !== record.bytes.length || !saved.pageNames)
+              await persistRom(record);
           } else {
             setStorage({
               state: "error",
@@ -1398,7 +1420,7 @@ export async function createAppStore(
           try {
             const bundled = await (deps.loadBundledRom ?? loadBundledRom)();
             if (bundled) {
-              const record = validateRomRecord(bundled);
+              const record = normalizeRomPair(bundled);
               if (activateRom(record)) await persistRom(record);
             }
           } catch (cause) {

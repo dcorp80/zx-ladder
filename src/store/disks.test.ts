@@ -49,9 +49,11 @@ it("preserves both modified disks across cold boot and Spectrum ROM replacement,
     change(machine, 0, 77);
     change(machine, 1, 93);
     store.refresh();
+    store.run();
     store.coldBoot();
     await waitFor(() => expect(store.filesBusy()).toBe(false));
     expect(store.machine()).not.toBe(machine);
+    expect(store.isRunning()).toBe(true);
     expect(store.disks()?.map((d) => [d.name, d.dirty])).toEqual([
       ["a.trd", true],
       ["b.scl", true],
@@ -67,8 +69,10 @@ it("preserves both modified disks across cold boot and Spectrum ROM replacement,
     await waitFor(() => expect(store.diskChangePendingDrive()).toBe(0));
     store.resolveDiskChange("discard");
     await eject;
+    store.pause();
     store.coldBoot();
     await waitFor(() => expect(store.filesBusy()).toBe(false));
+    expect(store.isRunning()).toBe(false);
     expect(store.disks()?.[0].id).toBe("");
     expect(store.disks()?.[1].id).toBe(b);
     expect((store.machine() as Machine).exportDisk(false, 1)[5000]).toBe(93);
