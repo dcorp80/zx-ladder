@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.7 — 2026-11-16
+
+### Improved
+
+- Use compact worker frame packets containing pixel/attribute planes and active
+  border/mode events. Ordinary payloads shrink from 268,834 to 35,884 bytes for
+  Pentagon and from 262,114 to 34,988 bytes for Lviv. Grow and reuse transfer
+  buffers, receive views and event storage as needed.
+- Retain raw attributes with each completed frame's FLASH phase and apply the
+  inversion during main-thread rendering. Preserve emulated FLASH timing and
+  accurate old-frame repaints; retain capture-time resolution for custom devices
+  or timing that changes FLASH within visible content.
+
+### Development
+
+- Extend regression coverage for compact packet growth, dirty-buffer reuse,
+  legacy decoding, FLASH phase boundaries, preset changes and worker recycling.
+- Record a repeatable Rage demo baseline with verified R startup and matching
+  emulated state and visible output across technical-field settings.
+
 ## 0.5.6 — 2026-11-15
 
 ### Added

@@ -5,14 +5,13 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.5.6** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.5.7** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.5.6: a screen-only view with lighter video collection.** Turn off
-**Show technical fields** in Video to hide sync, blanking and the INT overlay.
-The cropped screen has an 8 px black frame on desktop and 4 px on mobile.
-Skipping hidden video reads reduces execution work while keeping screen and
-border timing intact.
+**New in 0.5.7: smaller video packets and lighter FLASH capture.** Compact
+worker frame buffers carry only the populated data and reuse their capacity.
+Rendering applies FLASH using each completed frame's captured phase, preserving
+emulated timing and accurate paused-frame repaints.
 
 TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
 or ZIP in Files and press Load. [Disk support and compatibility](#tr-dos-disks).
