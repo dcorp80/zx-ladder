@@ -18,6 +18,7 @@ import {
   PENTAGON_VIDEO_PRESET,
   type VideoPreset,
 } from "../devices/videoPresets";
+import type { TapeState } from "../files/tape";
 import { rasterTiming } from "../machine/config";
 import { createCounters } from "../machine/counters";
 import type { MachineOptions } from "../machine/machine";
@@ -144,6 +145,12 @@ export class WorkerMachine implements MachineLike {
     this.fire({ type: "kempston", input });
   }
   readonly tape = { status: "No tape mounted." };
+  tapeState: TapeState = {
+    name: null,
+    cursor: 0,
+    catalog: [],
+    status: "No tape mounted.",
+  };
   frameCount = 0;
   framePosition = 0;
   cpu7: boolean;
@@ -247,6 +254,16 @@ export class WorkerMachine implements MachineLike {
     // Every snapshot carries a delta exactly once, including command replies.
     if ("state" in message && message.state) {
       this.pendingTicks += message.state.tickDelta;
+      // Catalog deltas arrive in worker order, including snapshots whose video
+      // epoch is obsolete. Retain them so the next accepted frame can use them.
+      if (message.state.tapeState) {
+        const { catalog, ...state } = message.state.tapeState;
+        this.tapeState = {
+          ...state,
+          catalog: catalog ?? this.tapeState.catalog,
+        };
+        this.tape.status = state.status;
+      }
     }
     if (message.type === "reply") {
       const waiting = this.pending.get(message.id);
@@ -449,6 +466,19 @@ export class WorkerMachine implements MachineLike {
     const reply = await this.request({ type: "diskExport", saved });
     if (!reply.memory) throw new Error("No disk returned.");
     return reply.memory;
+  }
+  async mountTape(bytes: Uint8Array, name: string): Promise<void> {
+    await this.request({ type: "tapeMount", bytes, name });
+  }
+  async runTape(index: number): Promise<void> {
+    this.epoch++;
+    await this.request({ type: "tapeRun", index });
+  }
+  async seekTape(index: number): Promise<void> {
+    await this.request({ type: "tapeSeek", index });
+  }
+  async ejectTape(): Promise<void> {
+    await this.request({ type: "tapeEject" });
   }
   async loadTape(bytes: Uint8Array, name: string): Promise<void> {
     this.epoch++;

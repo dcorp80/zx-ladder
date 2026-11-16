@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
+import type { SpectrumKey } from "../devices/keyboard";
 import { createMachine } from "../machine/machine";
+import { asTzx, basicTapFixture } from "../test/tape";
+import { diskFixture } from "../test/trd";
 import { TAPE_ROM_SIGNATURE } from "./spectrum48Tape";
 
 function fixture(loading = true, length = 3) {
@@ -34,6 +38,83 @@ function fixture(loading = true, length = 3) {
   return rom;
 }
 const bytes = new Uint8Array([5, 0, 255, 1, 2, 3, 255]);
+
+it.each([false, true])(
+  "manually mounts TAP/TZX and loads twice from BASIC without autotyping (turbo=%s)",
+  (cpu7) => {
+    const m = createMachine({
+      rom: new Uint8Array(readFileSync("public/roms/48.rom")),
+      cpu7,
+    });
+    for (let i = 0; i < 100; i++) m.advanceFrame();
+    const command: SpectrumKey[][] = [
+      ["J"],
+      ["SYMBOL_SHIFT", "P"],
+      ["SYMBOL_SHIFT", "P"],
+      ["ENTER"],
+    ];
+    for (const tzx of [false, true]) {
+      const tap = basicTapFixture();
+      const position = m.framePosition;
+      const pc = m.cpu.regs.pc;
+      m.mountTape(tzx ? asTzx(tap) : tap, tzx ? "test.tzx" : "test.tap");
+      expect(m.cpu.regs.pc).toBe(pc);
+      expect(m.framePosition).toBe(position);
+      for (let repeat = 0; repeat < 2; repeat++) {
+        m.memory.write(0x8000, 0);
+        m.seekTape(0);
+        for (const keys of command) {
+          m.keyboard.press("test-user", keys);
+          for (let i = 0; i < 4; i++) m.advanceFrame();
+          m.keyboard.release("test-user");
+          for (let i = 0; i < 4; i++) m.advanceFrame();
+        }
+        for (let i = 0; i < 60 && m.memory.read(0x8000) !== 42; i++)
+          m.advanceFrame();
+        expect(m.memory.read(0x8000), m.tape.status).toBe(42);
+        expect(m.tapeState.cursor).toBe(2);
+        for (let i = 0; i < 10; i++) m.advanceFrame();
+      }
+    }
+  },
+  30000,
+);
+
+it.each(["seek", "eject", "mount"])(
+  "preserves an in-flight CPU return overlay on %s",
+  (action) => {
+    const m = createMachine({ rom: fixture() });
+    m.mountTape(bytes, "original.tap");
+    for (let i = 0; i < 10000 && m.tapeState.cursor === 0; i++)
+      m.advancePixels(1);
+    expect(m.tapeState.cursor).toBe(1);
+    if (action === "seek") m.seekTape(0);
+    else if (action === "eject") m.ejectTape();
+    else m.mountTape(bytes, "replacement.tap");
+    m.advancePixels(10000);
+    expect(m.cpu.snapshot().ix).toBe(0x8003);
+    expect(m.cpu.snapshot().sp).toBe(0xff00);
+    expect(m.memory.read(0x9000) & 1).toBe(1);
+    expect(m.cpu.bus.nHALT).toBe(0);
+    expect(m.tapeState.cursor).toBe(0);
+  },
+);
+
+it("retains the mounted tape and position during internal disk startup", () => {
+  const m = createMachine({
+    rom: new Uint8Array(readFileSync("public/roms/48.rom")),
+  });
+  m.mountTape(basicTapFixture(), "user.tap");
+  m.seekTape(1);
+  const catalog = m.tapeState.catalog;
+  m.mountDisk(diskFixture(), "disk", "test.trd");
+  for (let i = 0; i < 300 && m.memory.read(0x8000) !== 42; i++)
+    m.advanceFrame();
+  expect(m.memory.read(0x8000)).toBe(42);
+  expect(m.tapeState.name).toBe("user.tap");
+  expect(m.tapeState.cursor).toBe(1);
+  expect(m.tapeState.catalog).toBe(catalog);
+});
 it.each([false, true])(
   "flashes through real bus cycles and CPU return, turbo=%s",
   (cpu7) => {
@@ -107,6 +188,7 @@ it("returns failure at tape exhaustion", () => {
   m.loadTape(bytes, "one.tap");
   m.advancePixels(15000);
   expect(m.tape.status).toContain("End of tape");
+  expect(m.tapeState.cursor).toBe(1);
   expect(m.memory.read(0x9000) & 1).toBe(0);
 });
 it("handles a zero-length request", () => {

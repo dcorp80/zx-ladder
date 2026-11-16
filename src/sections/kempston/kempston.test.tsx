@@ -32,6 +32,7 @@ it("places Sound after Keyboard and Kempston last, restores Cursor and persists 
       "Keyboard",
       "Sound",
       "Files",
+      "Tape",
       "TR-DOS",
       "Settings",
       "Kempston",

@@ -24,6 +24,7 @@ import {
   prepareImport,
 } from "../files/library";
 import { sclToTrd } from "../files/scl";
+import type { TapeState } from "../files/tape";
 import { trdBoot } from "../files/trd";
 import { KempstonController } from "../input/kempstonInput";
 import { isKeyboardLayout, KEYBOARD_PROFILE_ID } from "../input/keyboardLayout";
@@ -75,6 +76,11 @@ export interface MachineLike {
   setPcmSink?(sink?: StereoSink): void;
   configureSound?(settings: SoundSettings, sampleRate: number): void;
   readonly tape?: { readonly status: string };
+  readonly tapeState?: TapeState;
+  mountTape?(bytes: Uint8Array, name: string): void | Promise<void>;
+  runTape?(index: number): void | Promise<void>;
+  seekTape?(index: number): void | Promise<void>;
+  ejectTape?(): void | Promise<void>;
   loadTape?(bytes: Uint8Array, name: string): void | Promise<void>;
   readonly presentationVersion?: number;
   dispose?(): void;
@@ -163,6 +169,11 @@ export interface Store {
   readonly kempston: KempstonController;
   readonly mouseAccessed: Accessor<boolean>;
   readonly disk: Accessor<DiskState | undefined>;
+  readonly tape: Accessor<TapeState | undefined>;
+  mountFile(id: string): Promise<void>;
+  runTape(index: number): Promise<void>;
+  seekTape(index: number): Promise<void>;
+  ejectTape(): Promise<void>;
   readonly dosRom: Accessor<RomRecord | null>;
   readonly dosRomStatus: Accessor<string>;
   readonly diskChangePending: Accessor<boolean>;
@@ -289,6 +300,7 @@ export async function createAppStore(
     );
     const [mouseAccessed, setMouseAccessed] = createSignal(false);
     const [disk, setDisk] = createSignal<DiskState>();
+    const [tape, setTape] = createSignal<TapeState>();
     const [dosRom, setDosRom] = createSignal<RomRecord | null>(null);
     const [dosRomStatus, setDosRomStatus] = createSignal(
       "No ROM selected · basic loading available without ROM",
@@ -509,6 +521,7 @@ export async function createAppStore(
     const refresh = () => {
       const active = machine();
       setMouseAccessed(active?.mouseAccessed ?? false);
+      setTape(active?.tapeState);
       const replaced = active !== tickMachine;
       if (replaced) {
         tickMachine = active;
@@ -694,6 +707,75 @@ export async function createAppStore(
 
     store = {
       kempston,
+      tape,
+      async mountFile(id) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          const active = machine();
+          if (!active?.mountTape)
+            throw new Error(
+              "Choose a supported 48K or 128K ROM before mounting a tape.",
+            );
+          const file = await backend.getFile(id);
+          if (!file)
+            throw new Error("The file is no longer in browser storage.");
+          if (!/\.(tap|tzx)$/i.test(file.name))
+            throw new Error("Choose a TAP or TZX tape to mount.");
+          if (active !== machine())
+            throw new Error("Machine changed; please mount again.");
+          await active.mountTape(file.bytes, file.name);
+          setError(null);
+        } catch (cause) {
+          setError(messageForError(cause, "Mount failed."));
+        } finally {
+          refresh();
+          setFilesBusy(false);
+        }
+      },
+      async runTape(index) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          const active = machine();
+          if (!active?.runTape) throw new Error("Tape Run is unavailable.");
+          await active.runTape(index);
+          if (active !== machine()) return;
+          audio.reset();
+          setError(null);
+          store.run();
+          store.focusScreen();
+        } catch (cause) {
+          setError(messageForError(cause, "Tape Run failed."));
+        } finally {
+          refresh();
+          setFilesBusy(false);
+        }
+      },
+      async seekTape(index) {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          await machine()?.seekTape?.(index);
+        } catch (cause) {
+          setError(messageForError(cause, "Tape positioning failed."));
+        } finally {
+          refresh();
+          setFilesBusy(false);
+        }
+      },
+      async ejectTape() {
+        if (filesBusy()) return;
+        setFilesBusy(true);
+        try {
+          await machine()?.ejectTape?.();
+        } catch (cause) {
+          setError(messageForError(cause, "Tape eject failed."));
+        } finally {
+          refresh();
+          setFilesBusy(false);
+        }
+      },
       mouseAccessed,
       disk,
       dosRom,

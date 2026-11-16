@@ -147,6 +147,11 @@ export class Machine implements ClockContext {
     return this.disk.dosEnabled;
   }
   readonly tape: Spectrum48Tape;
+  private readonly diskTape: Spectrum48Tape;
+  private diskTapeActive = false;
+  get tapeState() {
+    return this.tape.state;
+  }
   private readonly capsLock: Spectrum48CapsLock;
   video: RasterVideo;
   bus: DeviceBus;
@@ -243,10 +248,16 @@ export class Machine implements ClockContext {
     };
     this.dos = new TrdosService(this.memory, this.disk);
     this.tape = new Spectrum48Tape(this.memory, this.keyboard);
+    this.diskTape = new Spectrum48Tape(
+      this.memory,
+      this.keyboard,
+      "disk-auto-load",
+    );
     this.capsLock = new Spectrum48CapsLock(this.memory, this.keyboard);
     this.rtc.enabled = options.rtcEnabled ?? true;
     this.mcu = new Mcu(this.memory, options.decodeFd, () => {
       this.tape.romChanged();
+      this.diskTape.romChanged();
       this.capsLock.reset();
     });
     this.border = new BorderDevice(
@@ -400,6 +411,8 @@ export class Machine implements ClockContext {
       this.dos.reset();
       this.capsLock.reset();
       this.tape.reset();
+      this.diskTape.reset();
+      this.diskTapeActive = false;
     }
     this.resetHeld = pressed;
     this.cpu.bus.nRESET = this.resetHeld || this.resetHalfCycles > 0 ? 0 : 1;
@@ -443,23 +456,56 @@ export class Machine implements ClockContext {
     const tape = this.disk.rom
       ? dosLauncher(file.name)
       : basicTape(this.disk.bytes, file);
-    this.loadTape(tape, "disk-start.tap", true);
+    this.startTape(this.diskTape, tape, "disk-start.tap", true);
+    this.diskTapeActive = true;
     this.dos.prepareBasic = this.disk.rom ? undefined : file;
   }
+  mountTape(bytes: Uint8Array, name: string): void {
+    this.tape.mount(bytes, name, false);
+    this.diskTape.eject();
+  }
+  runTape(index: number): void {
+    this.validateTapeLoader(this.tape);
+    this.tape.assertRunnable(index);
+    this.setReset(true);
+    this.setReset(false);
+    this.tape.run(index);
+    this.diskTape.eject();
+  }
+  seekTape(index: number): void {
+    this.tape.seek(index);
+  }
+  ejectTape(): void {
+    this.tape.eject();
+  }
   loadTape(bytes: Uint8Array, name: string, reset = false): void {
-    if (!this.tape.canMount)
-      throw new Error("This ROM is not supported by the flash tape loader.");
-    if (this.tape.supports128Menu && this.mcu.decodeFd)
-      throw new Error(
-        "Select standard 128K paging (uncheck low-byte FD) before loading with the 128K ROM.",
-      );
+    this.startTape(this.tape, bytes, name, reset);
+    this.diskTape.eject();
+  }
+  private startTape(
+    service: Spectrum48Tape,
+    bytes: Uint8Array,
+    name: string,
+    reset: boolean,
+  ): void {
+    this.validateTapeLoader(service);
     // Validate before touching the running machine.
     parseTape(bytes, name, this.memory.expanded);
     if (reset || !this.memory.expanded || this.tape.supports128Menu) {
       this.setReset(true);
       this.setReset(false);
     }
-    this.tape.mount(bytes, name);
+    if (service === this.diskTape) this.tape.cancel(false);
+    service.mount(bytes, name);
+  }
+
+  private validateTapeLoader(service: Spectrum48Tape): void {
+    if (!service.canMount)
+      throw new Error("This ROM is not supported by the flash tape loader.");
+    if (this.tape.supports128Menu && this.mcu.decodeFd)
+      throw new Error(
+        "Select standard 128K paging (uncheck low-byte FD) before loading with the 128K ROM.",
+      );
   }
 
   private cpuEdge(afterBorder: boolean): void {
@@ -581,8 +627,14 @@ export class Machine implements ClockContext {
                 this.memory.dosRom = this.disk.dosEnabled
                   ? this.disk.rom
                   : undefined;
-                if (this.disk.dosEnabled) this.tape.cancel();
-                else this.tape.romChanged();
+                if (this.disk.dosEnabled) {
+                  this.tape.cancel();
+                  this.diskTape.cancel();
+                  this.diskTapeActive = false;
+                } else {
+                  this.tape.romChanged();
+                  this.diskTape.romChanged();
+                }
                 this.capsLock.reset();
               }
               this.dos.fetchRam(b.addr, true);
@@ -595,13 +647,19 @@ export class Machine implements ClockContext {
               !this.dosEnabled &&
               opcode &&
               b.addr === 0x0805 &&
-              this.tape.status === "Block 2/2 loaded; end of tape."
+              this.diskTape.status === "Block 2/2 loaded; end of tape."
             )
               this.dos.basicReady();
+            if (this.diskTapeActive && this.diskTape.complete)
+              this.diskTapeActive = false;
             this.readValue =
               this.dos.read(b.addr, opcode, this.cpu) ??
               (!this.dosEnabled
-                ? this.tape.read(b.addr, opcode, this.cpu)
+                ? (this.diskTapeActive ? this.diskTape : this.tape).read(
+                    b.addr,
+                    opcode,
+                    this.cpu,
+                  )
                 : undefined) ??
               bus.readMemory(b.addr);
             this.readActive = true;
@@ -644,7 +702,8 @@ export class Machine implements ClockContext {
           this.borderFrameOffset = 0;
           video.finishFrame();
           this.keyboard.advanceFrame();
-          if (!this.dosEnabled) this.tape.frame();
+          if (!this.dosEnabled)
+            (this.diskTapeActive ? this.diskTape : this.tape).frame();
           if (this.cpu.bus.nRESET !== 0 && !this.dosEnabled)
             this.capsLock.advanceFrame();
           counters[Counter.frames]++;

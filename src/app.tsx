@@ -9,6 +9,7 @@ import { KeyboardSection } from "./sections/keyboard";
 import { MachineSection } from "./sections/machine";
 import { SettingsSection } from "./sections/settings";
 import { SoundSection } from "./sections/sound";
+import { TapeSection } from "./sections/tape";
 import { TrdosSection } from "./sections/trdos";
 import { VideoSection } from "./sections/video";
 import { useStore } from "./store";
@@ -98,6 +99,7 @@ export const App: Component = () => {
         <KeyboardSection />
         <SoundSection />
         <FilesSection />
+        <TapeSection />
         <TrdosSection />
         <SettingsSection />
         <KempstonSection />

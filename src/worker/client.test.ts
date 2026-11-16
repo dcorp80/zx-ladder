@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
 import * as compactCapture from "../devices/compactCapture";
 import { createRasterMasks } from "../devices/frameRenderer";
@@ -7,6 +8,7 @@ import {
 } from "../devices/videoPresets";
 import { Counter } from "../machine/counters";
 import { createMachine } from "../machine/machine";
+import { basicTapFixture } from "../test/tape";
 import { WorkerMachine } from "./client";
 import { WorkerEngine } from "./engine";
 import type { ToWorker } from "./protocol";
@@ -50,6 +52,56 @@ afterEach(() => {
   for (const instance of LoopbackWorker.instances) instance.terminate();
   LoopbackWorker.instances = [];
   vi.unstubAllGlobals();
+});
+
+it("roundtrips tape catalog and position without repeated catalog transfers or reset", async () => {
+  vi.stubGlobal("Worker", LoopbackWorker);
+  const machine = new WorkerMachine({
+    rom: new Uint8Array(readFileSync("public/roms/48.rom")),
+  });
+  try {
+    await machine.stepPixels(10000);
+    const before = await machine.pauseExecution();
+    await machine.mountTape(basicTapFixture(), "manual.tap");
+    const catalog = machine.tapeState.catalog;
+    expect(machine.tapeState.name).toBe("manual.tap");
+    expect(catalog).toHaveLength(2);
+    expect(catalog[0]).toMatchObject({
+      name: "boot",
+      type: "Program header",
+      checksumValid: true,
+    });
+    expect((await machine.pauseExecution()).pc).toBe(before.pc);
+    await machine.seekTape(1);
+    expect(machine.tapeState.cursor).toBe(1);
+    expect(machine.tapeState.catalog).toBe(catalog);
+    // A rejected position must leave the current tape unchanged.
+    await expect(machine.seekTape(99)).rejects.toThrow("Invalid tape");
+    expect(machine.tapeState.cursor).toBe(1);
+    await machine.seekTape(0);
+    machine.setReset(true);
+    machine.setReset(false);
+    await machine.inspectMemory(0, 0);
+    expect(machine.tapeState.name).toBe("manual.tap");
+    expect(machine.tapeState.cursor).toBe(0);
+    await expect(machine.runTape(1)).rejects.toThrow("Choose a BASIC program");
+    await machine.runTape(0);
+    expect(machine.tapeState.cursor).toBe(0);
+    expect(machine.tapeState.status).toMatch(/waiting for BASIC/);
+    expect(machine.tapeState.catalog).toBe(catalog);
+    // Commands go through the real worker, CPU and ROM to execute the program.
+    for (let i = 0; i < 200; i++) {
+      machine.advanceFrame();
+      if ((await machine.inspectMemory(0x8000, 1))[0] === 42) break;
+    }
+    expect((await machine.inspectMemory(0x8000, 1))[0]).toBe(42);
+    expect(machine.tapeState.cursor).toBe(2);
+    await machine.ejectTape();
+    expect(machine.tapeState.name).toBeNull();
+    expect(machine.tapeState.catalog).toHaveLength(0);
+  } finally {
+    machine.dispose();
+  }
 });
 it("provides acknowledged control, stable render storage, keyboard and coherent memory reads", async () => {
   vi.stubGlobal("Worker", LoopbackWorker);

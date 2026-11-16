@@ -2,7 +2,7 @@ import type { Z80Cpu } from "@dcorp80/z80cpu";
 import type { KeyboardDevice, SpectrumKey } from "../devices/keyboard";
 import type { BankedMemory } from "../devices/memory";
 import type { TapBlock } from "../files/tap";
-import { parseTape } from "../files/tape";
+import { parseTape, type TapeState, tapeCatalog } from "../files/tape";
 import { MENU_128_POLL, supports128TapeMenu } from "./spectrum128Tape";
 
 export const TAPE_ROM_SIGNATURE = [
@@ -31,9 +31,27 @@ export class Spectrum48Tape {
     return this.supports128Menu || this.supported;
   }
   status = "No tape mounted.";
+  private name: string | null = null;
+  private catalog: TapeState["catalog"] = [];
+  get state(): TapeState {
+    return {
+      name: this.name,
+      catalog: this.catalog,
+      cursor: this.cursor,
+      status: this.status,
+    };
+  }
+  get complete(): boolean {
+    return (
+      !this.typing &&
+      !this.program &&
+      (!this.blocks || this.cursor === this.blocks.length)
+    );
+  }
   private menuAutoLoad = false;
   private blocks: TapBlock[] | null = null;
   private cursor = 0;
+  private runHeader: TapBlock | null = null;
   private program: number[] | null = null;
   private offset = 0;
   private typing = false;
@@ -44,6 +62,7 @@ export class Spectrum48Tape {
   constructor(
     private readonly memory: BankedMemory,
     private readonly keyboard: KeyboardDevice,
+    private readonly owner = OWNER,
   ) {
     this.compatible = memory.romPages.map(
       (rom) =>
@@ -55,32 +74,86 @@ export class Spectrum48Tape {
       this.compatible[1] &&
       supports128TapeMenu(memory.romPages[0]);
     keyboard.subscribe(() => {
-      if (this.typing && this.phase >= 0 && keyboard.hasOtherSources(OWNER)) {
+      if (
+        this.typing &&
+        this.phase >= 0 &&
+        keyboard.hasOtherSources(this.owner)
+      ) {
         this.cancel();
         this.status = "Automatic typing cancelled by keyboard input.";
       }
     });
   }
-  mount(bytes: Uint8Array, name: string): void {
+  mount(bytes: Uint8Array, name: string, autoLoad = true): void {
     if (!this.canMount)
       throw new Error("This ROM is not supported by the flash tape loader.");
     const blocks = parseTape(bytes, name, this.memory.expanded);
-    this.cancel();
-    this.menuAutoLoad = this.supports128Menu && this.memory.romIndex === 0;
+    this.name = name;
+    this.catalog = tapeCatalog(blocks);
     this.blocks = blocks;
-    this.cursor = 0;
-    this.typing = true;
+    this.begin(0, autoLoad);
+  }
+  assertRunnable(index: number): void {
+    if (!Number.isInteger(index) || !this.catalog[index]?.runnable)
+      throw new Error(
+        "Choose a BASIC program with a valid header and data block to run.",
+      );
+  }
+  run(index: number): void {
+    this.assertRunnable(index);
+    const block = this.blocks?.[index];
+    if (!block) throw new Error("No tape mounted.");
+    this.begin(index, true);
+    if ((block.payload[13] | (block.payload[14] << 8)) >= 0x8000) {
+      // Run a program saved without LINE from its first line. Supply a derived
+      // header once, through the normal ROM loader; retain the mounted original.
+      const payload = block.payload.slice();
+      payload[13] = payload[14] = 0;
+      this.runHeader = { ...block, payload };
+    }
+  }
+  private begin(index: number, autoLoad: boolean): void {
+    this.cancel(false);
+    this.menuAutoLoad = this.supports128Menu && this.memory.romIndex === 0;
+    this.cursor = index;
+    this.typing = autoLoad;
     this.ready = false;
     this.age = 0;
     this.phase = -1;
     this.delay = 0;
-    this.status = `${name}: waiting for ${this.menuAutoLoad ? "128K Tape Loader menu" : "BASIC"}…`;
+    this.status = autoLoad
+      ? `${this.name}: waiting for ${this.menuAutoLoad ? "128K Tape Loader menu" : "BASIC"}…`
+      : 'Tape mounted. Enter LOAD "" in BASIC.';
   }
-  cancel(): void {
+  seek(index: number): void {
+    if (!this.blocks) throw new Error("No tape mounted.");
+    if (!Number.isInteger(index) || index < 0 || index > this.blocks.length)
+      throw new Error("Invalid tape block position.");
+    this.cancel(false);
+    this.cursor = index;
+    this.status =
+      index === this.blocks.length
+        ? "End of tape. Rewind to load again."
+        : `Tape positioned at block ${index + 1}.`;
+  }
+  eject(): void {
+    this.cancel(false);
+    this.blocks = null;
+    this.name = null;
+    this.catalog = [];
+    this.cursor = 0;
+    this.status = "No tape mounted.";
+  }
+  // UI operations may arrive between CPU operand reads. Let the result overlay
+  // finish so the real RET still executes; only reset/ROM paging may discard it.
+  cancel(clearOverlay = true): void {
+    this.runHeader = null;
     this.typing = false;
-    this.keyboard.release(OWNER);
-    this.program = null;
-    this.offset = 0;
+    this.keyboard.release(this.owner);
+    if (clearOverlay) {
+      this.program = null;
+      this.offset = 0;
+    }
   }
   /** Normal ROM paging must retain the mounted tape, cursor and menu key press. */
   romChanged(): void {
@@ -100,7 +173,7 @@ export class Spectrum48Tape {
       this.status = `${this.menuAutoLoad ? "128K menu" : "BASIC"} readiness timed out. Load again to retry.`;
       return;
     }
-    if (this.keyboard.hasOtherSources(OWNER)) {
+    if (this.keyboard.hasOtherSources(this.owner)) {
       if (this.phase >= 0) {
         this.cancel();
         this.status = "Automatic typing cancelled by keyboard input.";
@@ -109,7 +182,7 @@ export class Spectrum48Tape {
     }
     if (!this.ready || this.age < 8) return;
     if (this.delay-- > 0) return;
-    this.keyboard.release(OWNER);
+    this.keyboard.release(this.owner);
     this.phase++;
     const command = this.menuAutoLoad ? MENU_COMMAND : COMMAND;
     if (this.phase >= command.length * 2) {
@@ -120,7 +193,7 @@ export class Spectrum48Tape {
       return;
     }
     if (this.phase % 2 === 0)
-      this.keyboard.press(OWNER, command[this.phase / 2]);
+      this.keyboard.press(this.owner, command[this.phase / 2]);
     this.delay = 3;
     this.status = this.menuAutoLoad
       ? "Selecting 128K Tape Loader…"
@@ -154,9 +227,11 @@ export class Spectrum48Tape {
     // enter here with their own return address, bypassing the ROM cleanup.
     // RET must use the real stack rather than require a particular caller.
     this.typing = false;
-    this.keyboard.release(OWNER);
+    this.keyboard.release(this.owner);
     const length = (state.main.d << 8) | state.main.e;
-    const block = this.blocks[this.cursor++];
+    const block = this.runHeader ?? this.blocks[this.cursor];
+    this.runHeader = null;
+    if (block) this.cursor++;
     let copied = 0;
     let success = false;
     let reason = "End of tape";

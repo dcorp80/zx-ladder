@@ -121,6 +121,16 @@ export function FilesSection() {
                       </small>
                     </div>
                     <div class="file-actions">
+                      <Show when={/\.(tap|tzx)$/i.test(file.name)}>
+                        <button
+                          type="button"
+                          class="btn"
+                          disabled={store.filesBusy() || !store.machine()}
+                          onClick={() => void store.mountFile(file.id)}
+                        >
+                          Mount
+                        </button>
+                      </Show>
                       <button
                         type="button"
                         class="btn"
@@ -149,12 +159,6 @@ export function FilesSection() {
         Flash loading supports the standard 48K loader and the bundled 128K Tape
         Loader menu. Custom tape loaders need pulse playback, which is not
         available yet.
-      </p>
-      <p class="file-status" role="status">
-        {(() => {
-          store.frameVersion();
-          return store.machine()?.tape?.status ?? "";
-        })()}
       </p>
     </SectionFrame>
   );

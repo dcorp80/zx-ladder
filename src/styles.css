@@ -704,6 +704,36 @@ h1 {
   gap: 0.5rem;
   flex-shrink: 0;
 }
+.tape-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tape-catalog {
+  overflow: auto;
+  max-height: 24rem;
+}
+.tape-catalog table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.tape-catalog caption {
+  text-align: left;
+  color: var(--muted);
+  padding: 0.5rem 0;
+}
+.tape-catalog th,
+.tape-catalog td {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.tape-catalog tr[aria-current="step"] {
+  background: var(--accent-soft);
+}
+.tape-warning {
+  font-weight: 600;
+}
 .file-group h3 {
   font-size: 0.95rem;
   margin: 1rem 0 0.3rem;

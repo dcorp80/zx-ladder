@@ -4,6 +4,7 @@ import type { KempstonInput } from "../devices/kempston";
 import type { SpectrumKey } from "../devices/keyboard";
 import type { MemoryMapping } from "../devices/memory";
 import type { VideoPreset } from "../devices/videoPresets";
+import type { TapeState } from "../files/tape";
 
 export type KeyboardCommand =
   | { action: "press"; source: string; keys: readonly SpectrumKey[] }
@@ -47,6 +48,10 @@ export type Command =
     }
   | { type: "keyboard"; input: KeyboardCommand }
   | { type: "tape"; bytes: Uint8Array; name: string }
+  | { type: "tapeMount"; bytes: Uint8Array; name: string }
+  | { type: "tapeSeek"; index: number }
+  | { type: "tapeRun"; index: number }
+  | { type: "tapeEject" }
   | { type: "dosRom"; bytes: Uint8Array | null }
   | {
       type: "diskMount";
@@ -84,6 +89,7 @@ export interface MachineState {
   cpuLoad: number | null;
   memoryMapping: MemoryMapping;
   tape: string;
+  tapeState?: Omit<TapeState, "catalog"> & { catalog?: TapeState["catalog"] };
   keys: SpectrumKey[];
   romCapsLock: boolean | undefined;
   fps: number | null;

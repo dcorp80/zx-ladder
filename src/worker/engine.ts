@@ -7,6 +7,7 @@ import {
 } from "../devices/compactCapture";
 import { KEY_ROWS } from "../devices/keyboard";
 import type { VideoPreset } from "../devices/videoPresets";
+import type { TapeState } from "../files/tape";
 import { createMachine, type Machine } from "../machine/machine";
 import { createHostLoop, type HostLoop } from "../runloop/hostLoop";
 import type { FromWorker, MachineState, Request, ToWorker } from "./protocol";
@@ -77,10 +78,16 @@ export class WorkerEngine {
       transfer?: Transferable[],
     ) => void,
   ) {}
+  private tapeCatalog?: TapeState["catalog"];
   private state(): MachineState {
     const m = this.machine;
     if (!m) throw new Error("Worker machine is not initialized");
+    const tape = m.tapeState;
+    const catalog =
+      tape.catalog === this.tapeCatalog ? undefined : tape.catalog;
+    this.tapeCatalog = tape.catalog;
     return {
+      tapeState: { ...tape, catalog },
       disk: m.diskState,
       mouseAccessed: m.mouseAccessed,
       running: this.running,
@@ -432,6 +439,18 @@ export class WorkerEngine {
           ]);
           return;
         }
+        case "tapeMount":
+          m.mountTape(c.bytes, c.name);
+          break;
+        case "tapeRun":
+          m.runTape(c.index);
+          break;
+        case "tapeSeek":
+          m.seekTape(c.index);
+          break;
+        case "tapeEject":
+          m.ejectTape();
+          break;
         case "tape":
           m.loadTape(c.bytes, c.name);
           break;

@@ -247,6 +247,24 @@ only TAP/TZX/TRD/SCL members, grouped by archive name with full member paths. Re
 require confirmation. Archive reimports merge members; deleting a stored file
 does not alter a mounted tape. Deleting the mounted TRD or SCL also ejects it.
 
+For tapes, **Mount** inserts the selected TAP or TZX without resetting, running,
+or typing into the machine. Enter `LOAD ""` in BASIC to read it. The **Tape**
+section shows the mounted filename, Spectrum headers, data blocks, sizes,
+checksum warnings and the next block to read. **Select** positions the tape at
+that block; **Rewind** returns to the beginning, and **Eject** removes the mounted
+copy while retaining the stored file. Reset keeps the mounted tape and position;
+cold boot, ROM replacement and browser restart clear them. Disk startup uses a
+separate temporary tape and retains the mounted user tape. TZX catalogs show the
+resolved flash-load sequence, including repeated data blocks from loops, rather
+than waveform or metadata blocks.
+
+**Run**, beside Select on complete BASIC programs, resets and starts loading
+from that program's header. It uses the mounted copy, even if the library file
+was replaced or deleted. Saved autostart lines are honored; programs saved
+without an autostart line run from their first line. Run uses a temporary header
+for that load and preserves the original tape. CODE and array blocks have no Run
+button because they do not specify a standalone execution entry point.
+
 Load validates the tape before changing the machine. With the bundled 128K ROM,
 it resets to the main menu, waits for its verified keyboard polling loop, and
 presses Enter through the keyboard matrix to select Tape Loader. With a standalone
