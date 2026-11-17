@@ -29,6 +29,7 @@ export class AyDevice implements Device {
   readonly id = "ay";
   readonly clockHz = AY_CLOCK_HZ;
   readonly registers: number[] = new Array(15).fill(0);
+  enabled = true;
   selectedRegister = 0;
   private resetActive = false;
   private sink?: AyBatchSink;
@@ -64,6 +65,7 @@ export class AyDevice implements Device {
         lowValue: 1,
         highMask: 0xc0,
         highValue: 0xc0,
+        selected: () => this.enabled,
         read: () => this.read(),
       },
       {
@@ -71,6 +73,7 @@ export class AyDevice implements Device {
         lowValue: 0,
         highMask: 0xc0,
         highValue: 0xc0,
+        selected: () => this.enabled,
         write: (_address, value) => this.select(value),
       },
       {
@@ -78,6 +81,7 @@ export class AyDevice implements Device {
         lowValue: 0,
         highMask: 0xc0,
         highValue: 0x80,
+        selected: () => this.enabled,
         write: (_address, value) => this.write(value),
       },
     ];

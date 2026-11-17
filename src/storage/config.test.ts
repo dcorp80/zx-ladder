@@ -107,10 +107,10 @@ it("keeps configuration changes active when saving is unavailable", async () => 
 
 it("persists sound preferences and bounds volume", async () => {
   expect(sanitizeConfig(null).soundEnabled).toBe(true);
-  expect(sanitizeConfig(null).volume).toBe(0.2);
+  expect(sanitizeConfig(null).volume).toBe(0.1);
   expect(sanitizeConfig({ version: 1, volume: 99 }).volume).toBe(1);
   expect(sanitizeConfig({ version: 1, volume: -1 }).volume).toBe(0);
-  expect(sanitizeConfig({ version: 1, volume: NaN }).volume).toBe(0.2);
+  expect(sanitizeConfig({ version: 1, volume: NaN }).volume).toBe(0.1);
   const store = await createAppStore({ backend: new MemoryBackend() });
   try {
     store.setSoundEnabled(false);
@@ -119,6 +119,41 @@ it("persists sound preferences and bounds volume", async () => {
     expect(loadConfig().volume).toBe(0.23);
   } finally {
     store.dispose();
+  }
+});
+
+it("restores output mute and master volume independently of sound sources", async () => {
+  expect(sanitizeConfig(null)).toMatchObject({ muted: false, masterVolume: 1 });
+  expect(
+    sanitizeConfig({ version: 1, muted: "yes", masterVolume: NaN }),
+  ).toMatchObject({ muted: false, masterVolume: 1 });
+  expect(sanitizeConfig({ version: 1, masterVolume: -1 }).masterVolume).toBe(0);
+  expect(sanitizeConfig({ version: 1, masterVolume: 9 }).masterVolume).toBe(1);
+  const backend = new MemoryBackend();
+  const store = await createAppStore({ backend });
+  try {
+    store.setMuted(true);
+    store.setMasterVolume(0.43);
+    store.setMasterVolume(NaN);
+    expect(loadConfig()).toMatchObject({
+      muted: true,
+      masterVolume: 0.43,
+      soundEnabled: true,
+      ayEnabled: true,
+      volume: 0.1,
+      ayVolume: 0.2,
+    });
+  } finally {
+    store.dispose();
+  }
+  const restored = await createAppStore({ backend });
+  try {
+    expect(restored.muted()).toBe(true);
+    expect(restored.masterVolume()).toBe(0.43);
+    expect(restored.soundEnabled()).toBe(true);
+    expect(restored.ayEnabled()).toBe(true);
+  } finally {
+    restored.dispose();
   }
 });
 

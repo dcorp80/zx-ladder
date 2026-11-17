@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { DEFAULT_SOUND } from "../audio/mixer";
 import {
   compactCaptureCapacity,
   compactCaptureViews,
@@ -64,6 +65,67 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+it("applies AY availability through sound settings in 48K mode independently of playback and volume", () => {
+  const h = harness();
+  const program = [
+    0x01,
+    0xfd,
+    0xff, // LD BC,FFFD.
+    0x3e,
+    8,
+    0xed,
+    0x79, // Select R8.
+    0x06,
+    0xbf,
+    0x3e,
+    15,
+    0xed,
+    0x79, // Write volume 15.
+    0x06,
+    0xff,
+    0xed,
+    0x78, // Read R8.
+    0x32,
+    0,
+    0x80,
+    0xc3,
+    0,
+    0, // Save readback and repeat.
+  ];
+  const pair = new Uint8Array(32768);
+  pair.set(program);
+  pair.set(program, 16384);
+  try {
+    h.send({
+      type: "init",
+      rom: pair,
+      preset: PENTAGON_VIDEO_PRESET,
+      turbo: false,
+      mode48k: true,
+    });
+    const settings = { ...DEFAULT_SOUND, beeperEnabled: false, ayVolume: 0 };
+    for (const enabled of [false, true, false]) {
+      h.send({
+        type: "sound",
+        settings: { ...settings, ayEnabled: enabled },
+        sampleRate: 48000,
+      });
+      const state = h.send({ type: "step", pixels: 2000 }).state;
+      expect(state?.active48kMode).toBe(true);
+      expect(state?.memoryMapping).toEqual({
+        ramPage: 0,
+        romPage: 1,
+        screenPage: 5,
+      });
+      expect(
+        h.send({ type: "inspect", address: 0x8000, length: 1 }).memory?.[0],
+      ).toBe(enabled ? 15 : 255);
+    }
+    expect(h.messages.some((message) => message.type === "audio")).toBe(false);
+  } finally {
+    h.engine.dispose();
+  }
 });
 it.each([false, true])(
   "matches synchronous execution and raster through transferable buffers (raw=%s)",

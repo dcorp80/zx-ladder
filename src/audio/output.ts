@@ -5,6 +5,8 @@ import { PCM_BLOCK_FRAMES } from "./mixer";
 export class SoundOutput {
   private context?: AudioContext;
   private node?: AudioWorkletNode;
+  private gain?: GainNode;
+  private masterVolume = 1;
   private pending?: Promise<void>;
   private playing = false;
   private disposed = false;
@@ -54,7 +56,11 @@ export class SoundOutput {
             )
               this.buffers.push(data.samples);
           };
-          node.connect(context.destination);
+          const gain = context.createGain();
+          gain.gain.setValueAtTime(this.masterVolume, context.currentTime);
+          this.gain = gain;
+          node.connect(gain);
+          gain.connect(context.destination);
           this.reset();
         });
       }
@@ -75,6 +81,17 @@ export class SoundOutput {
     if (value === this.playing) return;
     this.playing = value;
     this.reset();
+  }
+  setMasterVolume(value: number): void {
+    if (this.disposed || !Number.isFinite(value)) return;
+    const next = Math.max(0, Math.min(1, value));
+    if (next === this.masterVolume) return;
+    this.masterVolume = next;
+    if (this.gain && this.context) {
+      const now = this.context.currentTime;
+      this.gain.gain.cancelScheduledValues(now);
+      this.gain.gain.setTargetAtTime(next, now, 0.01);
+    }
   }
   reset(): void {
     this.generation++;
@@ -102,6 +119,7 @@ export class SoundOutput {
     if (typeof document !== "undefined")
       document.removeEventListener("visibilitychange", this.visibility);
     this.node?.disconnect();
+    this.gain?.disconnect();
     this.node?.port.close();
     void this.context?.close().catch(() => {});
   }

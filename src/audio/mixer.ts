@@ -13,7 +13,7 @@ export interface SoundSettings {
 }
 export const DEFAULT_SOUND: SoundSettings = {
   beeperEnabled: true,
-  beeperVolume: 0.2,
+  beeperVolume: 0.1,
   ayEnabled: true,
   ayVolume: 0.2,
   ayStereo: "ABC",
@@ -44,7 +44,7 @@ export class SoundMixer {
   private rate = 48_000;
   private smoothing = 0;
   private filter = 0;
-  private readonly gains = [0.2, 0.05, 0, 0.025, 0.025, 0, 0.05];
+  private readonly gains = [0.1, 0.05, 0, 0.025, 0.025, 0, 0.05];
   private readonly targets = [...this.gains];
   private sink?: StereoSink;
   constructor(private readonly hasAy: boolean) {

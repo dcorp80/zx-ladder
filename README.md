@@ -186,13 +186,20 @@ inhibition for shared ports. Ordinary CPU I/O reads and writes commit once on
 the qualified nIORQ transition. A general device/UI adapter registry remains
 future work.
 
-Sound supports the FE bit-4 beeper and AY-3-8912 on 128K machines. AY uses
+Sound supports the FE bit-4 beeper and AY-3-8912 independently of 48K mode. AY uses
 FFFD register selection/readback and BFFD data writes (including aliases decoded
 with mask C002; even-port reads retain FE/keyboard priority), with a fixed 1.75 MHz clock
 independent of CPU turbo. Sound controls include independent Beeper/AY enable and
 volume, ABC/ACB/Mono routing, and middle-channel contribution to each speaker.
-Both volumes default to 20%; middle contribution defaults to 50%. Preferences
-persist. AY enable mutes playback without removing the chip or stopping its state.
+Beeper volume defaults to 10% and AY volume to 20%; middle contribution defaults
+to 50%. Existing saved volume settings are retained.
+Unchecking AY enabled disables its port reads/writes and audio contribution;
+re-enabling it retains its registers and synthesis state. Reset still resets AY.
+The Sound header lists the enabled sources and keeps a Mute checkbox and master
+volume slider accessible when folded. Mute and master volume affect only final
+playback, leaving source settings, AY ports and emulated state unchanged. Master
+volume defaults to 100% and Mute is off; these preferences persist alongside the
+source settings. The master control uses one browser audio gain stage.
 Gain and routing changes are smoothed. Volume levels use an ideal logarithmic
 approximation rather than a measured analog output model. Pause, stepping,
 hidden tabs and Free run mute playback. Slow or uneven execution can still

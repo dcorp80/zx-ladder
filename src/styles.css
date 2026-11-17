@@ -207,6 +207,33 @@ h1 {
   white-space: nowrap;
 }
 
+.sound-header-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+
+.sound-master-volume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sound-master-volume span {
+  min-width: 78px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sound-master-volume input {
+  width: 110px;
+  max-width: 100%;
+}
+
 .section-body {
   padding: 12px;
 }
@@ -507,6 +534,12 @@ h1 {
 
 .setting-check input {
   flex: 0 0 auto;
+}
+
+.sound-header-controls .setting-row {
+  min-height: 28px;
+  gap: 6px;
+  font-size: 12px;
 }
 
 .theme-setting {

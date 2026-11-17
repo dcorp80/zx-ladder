@@ -5,7 +5,41 @@ import { SectionFrame } from "../frame";
 export const SoundSection: Component = () => {
   const store = useStore();
   return (
-    <SectionFrame title="Sound" subtitle="Beeper · AY" defaultFolded={false}>
+    <SectionFrame
+      title="Sound"
+      subtitle={
+        [store.soundEnabled() && "Beeper", store.ayEnabled() && "AY"]
+          .filter(Boolean)
+          .join(" · ") || "No sources"
+      }
+      defaultFolded={false}
+      actions={
+        <div class="sound-header-controls">
+          <label class="setting-row setting-check">
+            <input
+              type="checkbox"
+              checked={store.muted()}
+              onChange={(event) => store.setMuted(event.currentTarget.checked)}
+            />
+            <span>Mute</span>
+          </label>
+          <label class="sound-master-volume">
+            <span>Volume {Math.round(store.masterVolume() * 100)}%</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              aria-label={`Master volume ${Math.round(store.masterVolume() * 100)}%`}
+              value={store.masterVolume()}
+              onInput={(event) =>
+                store.setMasterVolume(Number(event.currentTarget.value))
+              }
+            />
+          </label>
+        </div>
+      }
+    >
       <label class="setting-row setting-check">
         <input
           type="checkbox"
@@ -77,17 +111,19 @@ export const SoundSection: Component = () => {
         />
       </label>
       <p class="machine-note">
-        AY is available with a 128K ROM. Middle channel sets its contribution to
-        each speaker.
+        AY works in both 48K and 128K modes. Middle channel sets its
+        contribution to each speaker.
       </p>
       <p class="machine-note">
-        {!store.soundEnabled() && !store.ayEnabled()
+        {store.muted() || store.masterVolume() === 0
           ? "Muted"
-          : store.freeRun()
-            ? "Muted during free run"
-            : !store.isRunning()
-              ? "Paused"
-              : store.audioStatus()}
+          : !store.soundEnabled() && !store.ayEnabled()
+            ? "No sources enabled"
+            : store.freeRun()
+              ? "Muted during free run"
+              : !store.isRunning()
+                ? "Paused"
+                : store.audioStatus()}
       </p>
     </SectionFrame>
   );

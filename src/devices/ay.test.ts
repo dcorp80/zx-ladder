@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { DEFAULT_SOUND } from "../audio/mixer";
 import { DeviceBus } from "../machine/devices";
 import { createMachine } from "../machine/machine";
 import {
@@ -309,14 +310,89 @@ it("bounds batches for custom frames longer than the standard presets", () => {
   expect(durations).toEqual([AY_MAX_BATCH_TICKS, AY_MAX_BATCH_TICKS]);
 });
 
-it("keeps AY absent on 48K machines and its ports independent of paging", () => {
-  const m48 = createMachine({ rom: new Uint8Array(16384) });
-  expect(m48.ay).toBeUndefined();
-  expect(m48.bus.readIo(0xfffd)).toBe(255);
+it.each([
+  { size: 16384, mode48k: false },
+  { size: 32768, mode48k: false },
+  { size: 32768, mode48k: true },
+])(
+  "keeps AY ports available independently of ROM size and 48K mode (ROM $size, 48K=$mode48k)",
+  ({ size, mode48k }) => {
+    const m = createMachine({ rom: new Uint8Array(size), mode48k });
+    const mapping = m.memoryMapping;
+    m.configureSound(
+      { ...DEFAULT_SOUND, beeperEnabled: false, ayVolume: 0 },
+      48000,
+    );
+    m.bus.writeIo(0xfffd, 13);
+    m.bus.writeIo(0xbffd, 9);
+    expect(m.bus.readIo(0xfffd)).toBe(9);
+    expect(m.ay.enabled).toBe(true);
+    expect(m.memoryMapping).toEqual(mapping);
+  },
+);
+
+it("disconnects every AY I/O claim while disabled and retains registers on reconnect", () => {
+  const { bus, ay } = fixture();
+  bus.writeIo(0xfffd, 13);
+  bus.writeIo(0xbffd, 9);
+  ay.enabled = false;
+  for (const port of [0xfffd, 0xfefd, 0xfdfd, 0xc000, 0xd001]) {
+    bus.writeIo(port, 8);
+    expect(bus.readIo(port)).toBe(255);
+  }
+  for (const port of [0xbffd, 0xbefd, 0x8000, 0xa001]) bus.writeIo(port, 15);
+  expect(ay.selectedRegister).toBe(13);
+  expect(ay.registers[13]).toBe(9);
+  expect(ay.registers[8]).toBe(0);
+  expect(ay.batch.count).toBe(1);
+  ay.enabled = true;
+  expect(bus.readIo(0xfffd)).toBe(9);
+});
+
+it("flushes before availability changes while preserving chip time, machine state and port wiring", () => {
   const m = machine();
-  m.bus.writeIo(0xfffd, 13);
-  expect(m.mcu.latch).toBe(0);
-  expect(m.ay?.selectedRegister).toBe(13);
+  const batches: ReturnType<typeof copy>[] = [];
+  m.ay.setSink((batch) => batches.push(copy(batch)));
+  m.advancePixels(10);
+  m.bus.writeIo(0xfffd, 8);
+  m.bus.writeIo(0xbffd, 15);
+  m.memory.write(0x8000, 42);
+  const cpu = m.cpu.snapshot();
+  const mapping = m.memoryMapping;
+  const bus = m.bus;
+  m.configureSound({ ...DEFAULT_SOUND, ayEnabled: false }, 48000);
+  expect(m.aySynth.snapshot().position).toBe(10);
+  expect(
+    batches.map((batch) => [batch.origin, batch.duration, batch.value]),
+  ).toEqual([[0, 10, [15]]]);
+  expect(m.cpu.snapshot()).toEqual(cpu);
+  expect(m.memoryMapping).toEqual(mapping);
+  expect(m.memory.read(0x8000)).toBe(42);
+  expect(m.bus).toBe(bus);
+  expect(m.bus.readIo(0xfffd)).toBe(255);
+  m.bus.writeIo(0xfffd, 0);
+  m.bus.writeIo(0xbffd, 1);
+  m.advancePixels(5);
+  m.configureSound(DEFAULT_SOUND, 48000);
+  expect(m.aySynth.snapshot().position).toBe(15);
+  expect(
+    batches.map((batch) => [batch.origin, batch.duration, batch.value]),
+  ).toEqual([
+    [0, 10, [15]],
+    [10, 5, []],
+  ]);
+  expect(batches.every((batch) => batch.resets.length === 0)).toBe(true);
+  expect(m.bus.readIo(0xfffd)).toBe(15);
+  expect(m.ay.selectedRegister).toBe(8);
+  m.configureSound({ ...DEFAULT_SOUND, ayEnabled: false }, 48000);
+  m.setVideoPreset(LVIV_VIDEO_PRESET);
+  expect(m.bus.readIo(0xfffd)).toBe(255);
+  m.setReset(true);
+  m.setReset(false);
+  m.advancePixels(6);
+  expect(m.ay.enabled).toBe(false);
+  m.configureSound(DEFAULT_SOUND, 48000);
+  expect(m.bus.readIo(0xfffd)).toBe(0);
 });
 
 it("decodes AY aliases using A15, A14 and A1, independently of paging", () => {

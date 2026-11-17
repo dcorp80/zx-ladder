@@ -193,6 +193,10 @@ export interface Store {
   runDisk(index: number, drive?: DiskDrive): Promise<void>;
   readonly keyboardColor: Accessor<"theme" | "light" | "dark">;
   setKeyboardColor(value: "theme" | "light" | "dark"): void;
+  readonly muted: Accessor<boolean>;
+  readonly masterVolume: Accessor<number>;
+  setMuted(value: boolean): void;
+  setMasterVolume(value: number): void;
   readonly soundEnabled: Accessor<boolean>;
   readonly volume: Accessor<number>;
   readonly ayEnabled: Accessor<boolean>;
@@ -446,6 +450,8 @@ export async function createAppStore(
     const [keyboardColor, setKeyboardColor] = createSignal(
       config.keyboardColor,
     );
+    const [muted, setMuted] = createSignal(config.muted);
+    const [masterVolume, setMasterVolume] = createSignal(config.masterVolume);
     const [soundEnabled, setSoundEnabled] = createSignal(config.soundEnabled);
     const [volume, setVolume] = createSignal(config.volume);
     const [ayEnabled, setAyEnabled] = createSignal(config.ayEnabled);
@@ -457,6 +463,9 @@ export async function createAppStore(
       "Click or press a key to enable audio",
     );
     const audio = new SoundOutput(setAudioStatus, setSampleRate);
+    createEffect(() => {
+      audio.setMasterVolume(muted() ? 0 : masterVolume());
+    });
     createEffect(() => {
       audio.setPlaying(
         (soundEnabled() || ayEnabled()) && isRunning() && !freeRun(),
@@ -488,6 +497,8 @@ export async function createAppStore(
           version: 1,
           kempston: kempston.settings(),
           keyboardColor: keyboardColor(),
+          muted: muted(),
+          masterVolume: masterVolume(),
           soundEnabled: soundEnabled(),
           volume: volume(),
           ayEnabled: ayEnabled(),
@@ -954,6 +965,18 @@ export async function createAppStore(
       keyboardColor,
       setKeyboardColor(value) {
         setKeyboardColor(value);
+        persistConfig();
+      },
+      muted,
+      masterVolume,
+      setMuted(value) {
+        setMuted(value);
+        persistConfig();
+        if (!value && (soundEnabled() || ayEnabled())) void audio.unlock();
+      },
+      setMasterVolume(value) {
+        if (!Number.isFinite(value)) return;
+        setMasterVolume(Math.max(0, Math.min(1, value)));
         persistConfig();
       },
       soundEnabled,

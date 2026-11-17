@@ -147,29 +147,67 @@ it.each([16384, 32768])(
     );
   },
 );
-it("plays AY with beeper disabled, and resumes after discarded PCM without losing state", () => {
-  const rom = new Uint8Array(32768);
-  rom[0] = 0x76;
+it.each([16384, 32768])(
+  "plays AY with beeper disabled, and resumes after discarded PCM without losing state (ROM %i)",
+  (size) => {
+    const rom = new Uint8Array(size);
+    rom[0] = 0x76;
+    const m = createMachine({ rom });
+    m.configureSound({ ...DEFAULT_SOUND, beeperEnabled: false }, 48000);
+    const write = (r: number, v: number) => {
+      m.bus.writeIo(0xfffd, r);
+      m.bus.writeIo(0xbffd, v);
+    };
+    write(0, 100);
+    write(7, 0x3e);
+    write(8, 15);
+    for (let i = 0; i < 10; i++) m.advanceFrame();
+    const left: number[] = [],
+      right: number[] = [];
+    m.setPcmSink((pcm, count) => {
+      for (let i = 0; i < count; i++) {
+        left.push(pcm[i * 2]);
+        right.push(pcm[i * 2 + 1]);
+      }
+    });
+    m.advanceFrame();
+    expect(Math.max(...left) - Math.min(...left)).toBeGreaterThan(0.04);
+    expect(Math.max(...right.map(Math.abs))).toBeLessThan(1e-8);
+    expect(m.aySynth?.snapshot().position).toBe(11 * 143360);
+  },
+);
+
+it("silences a disabled AY while its oscillator continues and reconnects without reset", () => {
+  const rom = new Uint8Array(16384).fill(0x76);
   const m = createMachine({ rom });
-  m.configureSound({ ...DEFAULT_SOUND, beeperEnabled: false }, 48000);
-  const write = (r: number, v: number) => {
-    m.bus.writeIo(0xfffd, r);
-    m.bus.writeIo(0xbffd, v);
-  };
-  write(0, 100);
-  write(7, 0x3e);
-  write(8, 15);
-  for (let i = 0; i < 10; i++) m.advanceFrame();
-  const left: number[] = [],
-    right: number[] = [];
-  m.setPcmSink((pcm, count) => {
-    for (let i = 0; i < count; i++) {
-      left.push(pcm[i * 2]);
-      right.push(pcm[i * 2 + 1]);
-    }
+  const settings = { ...DEFAULT_SOUND, beeperEnabled: false };
+  m.configureSound(settings, 48000);
+  for (const [register, value] of [
+    [0, 100],
+    [7, 0x3e],
+    [8, 15],
+  ]) {
+    m.bus.writeIo(0xfffd, register);
+    m.bus.writeIo(0xbffd, value);
+  }
+  let peak = 0;
+  m.setPcmSink((samples, count) => {
+    for (let index = 0; index < count * 2; index++)
+      peak = Math.max(peak, Math.abs(samples[index]));
   });
+  for (let frame = 0; frame < 5; frame++) m.advanceFrame();
+  expect(peak).toBeGreaterThan(0.02);
+  m.configureSound({ ...settings, ayEnabled: false }, 48000);
+  for (let frame = 0; frame < 5; frame++) m.advanceFrame();
+  peak = 0;
   m.advanceFrame();
-  expect(Math.max(...left) - Math.min(...left)).toBeGreaterThan(0.04);
-  expect(Math.max(...right.map(Math.abs))).toBeLessThan(1e-8);
-  expect(m.aySynth?.snapshot().position).toBe(11 * 143360);
+  expect(peak).toBeLessThan(0.00001);
+  expect(m.aySynth.snapshot().position).toBe(11 * 143360);
+  expect(m.ay.registers[8]).toBe(15);
+  expect(m.bus.readIo(0xfffd)).toBe(255);
+  m.configureSound(settings, 48000);
+  expect(m.aySynth.snapshot().position).toBe(11 * 143360);
+  expect(m.bus.readIo(0xfffd)).toBe(15);
+  m.advanceFrame();
+  expect(peak).toBeGreaterThan(0.02);
 });

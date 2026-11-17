@@ -64,8 +64,8 @@ export class Machine implements ClockContext {
   readonly cpu = new Z80Cpu();
   readonly memory: BankedMemory;
   readonly mcu: Mcu;
-  readonly ay?: AyDevice;
-  readonly aySynth?: AySynth;
+  readonly ay: AyDevice;
+  readonly aySynth: AySynth;
   private readonly mixer: SoundMixer;
   private feWriteDelay = 0;
   private borderFrameOffset = 0;
@@ -99,17 +99,21 @@ export class Machine implements ClockContext {
     this.mixer.setSink(sink);
   }
   configureSound(settings: SoundSettings, sampleRate: number): void {
-    if (sampleRate !== this.mixer.sampleRate) {
-      if (
-        !Number.isSafeInteger(sampleRate) ||
+    const rateChanged = sampleRate !== this.mixer.sampleRate;
+    if (
+      rateChanged &&
+      (!Number.isSafeInteger(sampleRate) ||
         sampleRate < 8000 ||
-        sampleRate > 192000
-      )
-        throw new RangeError("Unsupported audio sample rate");
+        sampleRate > 192000)
+    )
+      throw new RangeError("Unsupported audio sample rate");
+    if (rateChanged || this.ay.enabled !== settings.ayEnabled)
       this.flushAudio();
+    if (rateChanged) {
       this.mixer.setSampleRate(sampleRate);
-      this.aySynth?.setSampleRate(sampleRate);
+      this.aySynth.setSampleRate(sampleRate);
     }
+    this.ay.enabled = settings.ayEnabled;
     this.mixer.configure(settings);
   }
   /** Monotonic 7 MHz time; independent of raster rephasing and reporting deltas. */
@@ -225,16 +229,14 @@ export class Machine implements ClockContext {
     this.requestedTurbo = this.turbo;
     this.mode48k = options.mode48k ?? false;
     this.memory = new BankedMemory(options.rom);
-    this.mixer = new SoundMixer(this.memory.expanded);
-    if (this.memory.expanded) {
-      const synth = new AySynth();
-      this.aySynth = synth;
-      synth.setSink((block) => this.mixer.captureAy(block));
-      this.ay = new AyDevice(
-        () => this.elapsedTicks,
-        (batch) => synth.process(batch),
-      );
-    }
+    this.mixer = new SoundMixer(true);
+    const synth = new AySynth();
+    this.aySynth = synth;
+    synth.setSink((block) => this.mixer.captureAy(block));
+    this.ay = new AyDevice(
+      () => this.elapsedTicks,
+      (batch) => synth.process(batch),
+    );
     this.config = this.memory.expanded
       ? {
           ...MACHINE_CONFIG,
@@ -283,7 +285,7 @@ export class Machine implements ClockContext {
       this.memory,
       this.disk,
       ...(this.memory.expanded ? [this.mcu] : []),
-      ...(this.ay ? [this.ay] : []),
+      this.ay,
       this.border,
       this.keyboard,
       this.kempston,
@@ -316,7 +318,7 @@ export class Machine implements ClockContext {
       this.memory,
       this.disk,
       ...(this.memory.expanded ? [this.mcu] : []),
-      ...(this.ay ? [this.ay] : []),
+      this.ay,
       this.border,
       this.keyboard,
       this.kempston,
@@ -424,7 +426,7 @@ export class Machine implements ClockContext {
     }
     this.resetHeld = pressed;
     this.cpu.bus.nRESET = this.resetHeld || this.resetHalfCycles > 0 ? 0 : 1;
-    this.ay?.setReset(this.cpu.bus.nRESET === 0);
+    this.ay.setReset(this.cpu.bus.nRESET === 0);
   }
 
   setDosRom(bytes: Uint8Array | null): void {
@@ -557,13 +559,13 @@ export class Machine implements ClockContext {
     if (this.resetHalfCycles > 0) this.resetHalfCycles--;
     if (!this.resetHeld && this.resetHalfCycles === 0 && b.nRESET === 0) {
       b.nRESET = 1;
-      this.ay?.setReset(false);
+      this.ay.setReset(false);
     }
     this.counters[Counter.cpuEdges]++;
   }
 
   private flushAudio(): void {
-    this.ay?.flush();
+    this.ay.flush();
     this.border.flush(this.elapsedTicks, this.consumeFe);
     this.nextAudioFlush = this.elapsedTicks + IO_MAX_BATCH_TICKS;
   }

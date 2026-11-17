@@ -17,6 +17,8 @@ export interface AppConfig {
   showTechnicalFields: boolean;
   showBorder: boolean;
   keyboardColor: "theme" | "light" | "dark";
+  muted: boolean;
+  masterVolume: number;
   soundEnabled: boolean;
   volume: number;
   ayEnabled: boolean;
@@ -59,12 +61,18 @@ export function sanitizeConfig(value: unknown): AppConfig {
       config.keyboardColor === "light" || config.keyboardColor === "dark"
         ? config.keyboardColor
         : "theme",
+    muted: typeof config.muted === "boolean" ? config.muted : false,
+    masterVolume:
+      typeof config.masterVolume === "number" &&
+      Number.isFinite(config.masterVolume)
+        ? Math.max(0, Math.min(1, config.masterVolume))
+        : 1,
     soundEnabled:
       typeof config.soundEnabled === "boolean" ? config.soundEnabled : true,
     volume:
       typeof config.volume === "number" && Number.isFinite(config.volume)
         ? Math.max(0, Math.min(1, config.volume))
-        : 0.2,
+        : 0.1,
     ayEnabled: typeof config.ayEnabled === "boolean" ? config.ayEnabled : true,
     ayVolume:
       typeof config.ayVolume === "number" && Number.isFinite(config.ayVolume)
