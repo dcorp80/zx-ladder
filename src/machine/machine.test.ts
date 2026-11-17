@@ -288,7 +288,6 @@ describe("Lviv video on the same machine", () => {
     const m = createMachine({
       rom: rom(),
       videoPreset: LVIV_VIDEO_PRESET,
-      lateInt: false,
     });
     m.cpu.clockEdge = () => {};
     m.advancePixels(4 * 448);
@@ -388,24 +387,15 @@ it("honours the latest turbo request and keeps a real CPU running through both t
 it.each([
   {
     preset: PENTAGON_VIDEO_PRESET,
-    late: false,
     position: 313 * 448 + 440,
     h: 64,
     v: 240,
   },
-  {
-    preset: PENTAGON_VIDEO_PRESET,
-    late: true,
-    position: 316 * 448 + 88,
-    h: 112,
-    v: 242,
-  },
-  { preset: LVIV_VIDEO_PRESET, late: false, position: 4 * 448, h: 160, v: 248 },
-  { preset: LVIV_VIDEO_PRESET, late: true, position: 68 * 448, h: 160, v: 0 },
+  { preset: LVIV_VIDEO_PRESET, position: 4 * 448, h: 160, v: 248 },
 ])(
-  "asserts INT on the selected edge: $preset.id late=$late",
-  ({ preset, late, position, h, v }) => {
-    const m = createMachine({ rom: rom(), videoPreset: preset, lateInt: late });
+  "asserts INT on the preset edge: $preset.id",
+  ({ preset, position, h, v }) => {
+    const m = createMachine({ rom: rom(), videoPreset: preset });
     m.cpu.clockEdge = () => {};
     m.advancePixels(position);
     expect(m.cpu.bus.nINT).toBe(1);
@@ -419,34 +409,25 @@ it.each([
     expect(m.cpu.bus.nINT).toBe(1);
   },
 );
-it("acknowledges a late interrupt without reasserting on the second pixel", () => {
-  const m = createMachine({ rom: rom(), lateInt: true });
-  m.cpu.clockEdge = () => {};
-  m.advancePixels(316 * 448 + 88);
-  m.cpu.bus.nIORQ = 0;
-  m.cpu.bus.nM1 = 0;
-  m.advancePixels(1);
-  expect(m.cpu.bus.nINT).toBe(1);
-  m.cpu.bus.nIORQ = 1;
-  m.cpu.bus.nM1 = 1;
-  m.advancePixels(448);
-  expect(m.cpu.bus.nINT).toBe(1);
-});
-it("changes INT timing live without resetting CPU or RAM", () => {
-  const m = createMachine({ rom: rom() });
-  m.cpu.clockEdge = () => {};
-  m.advancePixels(100);
-  m.memory.write(0x8000, 42);
-  const cpu = m.cpu;
-  m.setLateInt(true);
-  expect(m.framePosition).toBe(100);
-  expect(m.cpu).toBe(cpu);
-  expect(m.memory.read(0x8000)).toBe(42);
-  m.advancePixels(316 * 448 + 88 - 100);
-  expect(m.cpu.bus.nINT).toBe(1);
-  m.advancePixels(1);
-  expect(m.cpu.bus.nINT).toBe(0);
-});
+it.each([
+  { preset: PENTAGON_VIDEO_PRESET, position: 313 * 448 + 440 },
+  { preset: LVIV_VIDEO_PRESET, position: 4 * 448 },
+])(
+  "acknowledges INT without reasserting on the second pixel: $preset.id",
+  ({ preset, position }) => {
+    const m = createMachine({ rom: rom(), videoPreset: preset });
+    m.cpu.clockEdge = () => {};
+    m.advancePixels(position);
+    m.cpu.bus.nIORQ = 0;
+    m.cpu.bus.nM1 = 0;
+    m.advancePixels(1);
+    expect(m.cpu.bus.nINT).toBe(1);
+    m.cpu.bus.nIORQ = 1;
+    m.cpu.bus.nM1 = 1;
+    m.advancePixels(448);
+    expect(m.cpu.bus.nINT).toBe(1);
+  },
+);
 
 it.each([
   { preset: PENTAGON_VIDEO_PRESET, start: 314 * 448 - 8 },

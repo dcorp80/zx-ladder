@@ -11,10 +11,13 @@ it("restores configuration and the saved ROM paused", async () => {
   const deps = { backend, hostLoopFactory: () => makeFakeLoop() };
   const first = await createAppStore(deps);
   expect(first.theme()).toBe("system");
+  expect(first.videoPreset().id).toBe("pentagon");
+  expect(first.showTechnicalFields()).toBe(false);
   first.setVideoPreset("lviv");
   first.setTurbo(true);
   first.set48kMode(true);
   first.setFreeRun(true);
+  first.setShowTechnicalFields(true);
   first.setShowBorder(false);
   first.setTheme("dark");
   first.setKeyboardLayout("pc-full-size");
@@ -33,6 +36,8 @@ it("restores configuration and the saved ROM paused", async () => {
       screenPage: 5,
     });
     expect(fresh.freeRun()).toBe(true);
+    expect(fresh.showTechnicalFields()).toBe(true);
+    expect(loadConfig().showTechnicalFields).toBe(true);
     expect(fresh.showBorder()).toBe(false);
     expect(fresh.theme()).toBe("dark");
     expect(fresh.keyboardLayout()).toBe("pc-full-size");
@@ -50,10 +55,15 @@ it("restores configuration and the saved ROM paused", async () => {
 it("validates persisted fields, malformed JSON, and future configuration versions", () => {
   const defaults = sanitizeConfig(null);
   expect(defaults.theme).toBe("system");
-  expect(defaults.showTechnicalFields).toBe(true);
+  expect(defaults.videoPreset).toBe("pentagon");
+  expect(defaults.showTechnicalFields).toBe(false);
   expect(defaults.mode48k).toBe(false);
   expect(sanitizeConfig({ version: 1, mode48k: true }).mode48k).toBe(true);
-  expect(sanitizeConfig({ version: 1 }).showTechnicalFields).toBe(true);
+  expect(sanitizeConfig({ version: 1 }).showTechnicalFields).toBe(false);
+  expect(
+    sanitizeConfig({ version: 1, showTechnicalFields: true })
+      .showTechnicalFields,
+  ).toBe(true);
   expect(
     sanitizeConfig({ version: 1, showTechnicalFields: false })
       .showTechnicalFields,
@@ -90,29 +100,6 @@ it("keeps configuration changes active when saving is unavailable", async () => 
     expect(store.freeRun()).toBe(true);
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(store.error()).toContain("session only");
-  } finally {
-    store.dispose();
-  }
-});
-
-it("keeps experimental Late INT off including persisted opt-ins", async () => {
-  expect(sanitizeConfig(null).lateInt).toBe(false);
-  expect(sanitizeConfig({ version: 1, videoPreset: "lviv" }).lateInt).toBe(
-    false,
-  );
-  expect(
-    sanitizeConfig({ version: 1, videoPreset: "lviv", lateInt: true }).lateInt,
-  ).toBe(false);
-  const store = await createAppStore({ backend: new MemoryBackend() });
-  try {
-    store.setVideoPreset("lviv");
-    expect(store.lateInt()).toBe(false);
-    store.setLateInt(false);
-    expect(loadConfig().lateInt).toBe(false);
-    store.setVideoPreset("pentagon");
-    expect(store.lateInt()).toBe(false);
-    store.setLateInt(true);
-    expect(loadConfig().lateInt).toBe(false);
   } finally {
     store.dispose();
   }

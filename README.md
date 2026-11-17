@@ -96,12 +96,15 @@ override it. The theme cache is applied before the first paint.
 Run/Pause, Step frame, Reset and Cold boot stay in the Machine header and remain
 accessible when the section is folded.
 
-- **Pause / Step frame** stop execution or finish the next raster frame.
+- **Run** opens and focuses the visible keyboard after starting. **Pause**
+  stops execution without moving focus; **Step frame** finishes the next raster frame.
 - **Cold boot** recreates the CPU and devices with RAM filled with FFh. It is
   available while running and preserves the running or paused state.
 - **Reset** holds the CPU's `nRESET` pin low while pressed (mouse, touch,
   Space, or Enter), for at least six CPU half-cycles. Execution and video
   timing continue. A tap while paused is applied when execution resumes.
+  Releasing Reset while running opens and focuses the keyboard; paused Reset
+  leaves focus on its button.
 - **Turbo** selects 7 MHz CPU operation; the video clock stays at 7 MHz.
   It can be changed while running. The requested divider is latched on the
   next `nM1` low-to-high transition and used from the following pixel slot.
@@ -110,13 +113,13 @@ accessible when the section is folded.
   It switches live without resetting the machine and is independent of CPU
   turbo. FPS reports the resulting emulation speed. Turning it off restores
   real-time pacing without a catch-up burst.
-- **Video preset** selects Pentagon or Lviv raster timing on the same machine.
+- **Video preset** selects Pentagon (the default) or Lviv raster timing on the same machine.
   While running in a worker, switching takes effect at the next frame boundary.
   The new raster preserves CPU, RAM, border, turbo,
   and accumulated clocks; a running emulator continues running.
 - **Show border** overlays the sampled border latch on captured symbols.
   Turning it off exposes the symbol data captured outside the paper area.
-- **Show technical fields** is on by default. Turn it off to display only the
+- **Show technical fields** is off by default. With it off, the canvas displays only the
   visible screen and border, surrounded by a black frame (8 px on desktop,
   4 px on mobile). Sync, blanking
   and the orange INT overlay are hidden; the border checkbox is checked and
@@ -138,7 +141,7 @@ phase; rendering applies the inversion. Custom timing that changes FLASH within
 visible content retains capture-time resolution. Border colour is reconstructed from
 timed FE events. Pixel/attribute latches are captured at the opening of each
 eight-slot group across the full raster, including blanking and border regions.
-Host extended-mode and INT-timing changes apply at the next frame boundary while
+Host extended-mode changes apply at the next frame boundary while
 running; guest EFF7 writes affect subsequent memory fetches immediately.
 The worker follows elapsed wall time; RAF presents completed frames.
 The FPS indicator measures completed emulator frames against wall-clock
@@ -156,12 +159,17 @@ to that owner. Conditional memory interceptors run in priority order, checking
 exact address ranges before handling an access or passing it through to backing
 memory. ROM protection stays in the memory handler; I/O decoding is separate.
 
-The Keyboard section uses MacBook Pro ISO geometry with Spectrum legends.
-Click the screen or keyboard surface to type; configuration controls keep
-their normal input. Control maps to Caps Shift, Option to Symbol Shift,
-and letters/digits/Return/Space map directly. Ivory keycaps hold Spectrum combinations for arrows, Backspace, and punctuation
+The Keyboard section places the keyboard first, followed by Cursor keys,
+Keyboard layout and Keyboard color selectors, then the legend. Host-key captions
+such as `caps lock` and `delete` use lowercase alongside uppercase Spectrum
+legends. Changing Cursor keys returns focus to the visible keyboard, including
+the compact keyboard on narrow screens. Click the screen or keyboard surface to
+type; the layout and color selectors keep their normal input. Control maps to Caps Shift, Option to Symbol Shift,
+and unshifted letters/digits/Return/Space map directly. Ivory keycaps hold Spectrum combinations for arrows, Backspace, and punctuation
 (− = ; " # , . /), using ZX-M8XXX mappings. CS means Caps Shift and SS means
-Symbol Shift. Host Shift selects punctuation and number-row symbols using the host character
+Symbol Shift. Host Shift + letter sends Caps Shift with that letter, using
+the browser's Shift state. The chord remains held until the letter is released.
+Host Shift selects punctuation and number-row symbols using the host character
 (with positional fallback). Shift-clicks use the positional mapping. The pipe
 character uses Caps+Symbol for two emulated frames, then Symbol+S until released;
 brackets, braces, and backslash use the same sequence with their corresponding ZX keys. Mouse and touch keys stay down
@@ -211,7 +219,8 @@ inactive for unsupported ROMs. Compatibility is cached per physical ROM page;
 paging to another ROM cancels pending Caps Lock activity. Tape sessions survive
 normal ROM paging, with injected instructions confined to their active ROM.
 The ivory Caps Lock keycap changes the target locally until the next host
-Caps Lock state change. Uppercase host letters do not directly add Caps Shift.
+Caps Lock state change. Uppercase host characters without Host Shift do not
+add Caps Shift; Caps Lock keeps its separate synchronization behavior.
 
 Keyboard presets include MacBook Pro ISO and PC full-size (tall Return, separate
 arrow cluster and numeric keypad). Automatic selection uses the host platform
@@ -406,31 +415,32 @@ modifications; browser restart does not retain unsaved runtime changes.
 An optional integration check uses your own firmware without redistributing it:
 `TRDOS_ROM=/absolute/path/trdos.rom npx vitest run src/rom/trdos.test.ts src/rom/driveB.test.ts`.
 
-## Late INT
+## Interrupt timing
 
-The Video section's experimental Late INT checkbox is disabled and off for
-both presets. Previously saved opt-ins are ignored. The alternate timing
-implementation remains in the core for later investigation.
+Each video preset has a fixed INT trigger position.
 Horizontal values below are 3.5 MHz counter ticks, not pixel offsets.
 
-| Video preset | Late INT off | Late INT on           |
-| ------------ | ------------ | --------------------- |
-| Pentagon     | V=240, H=64  | V=242, H=112          |
-| Lviv         | V=248, H=160 | V=0 (312 wrap), H=160 |
+| Video preset | INT trigger  |
+| ------------ | ------------ |
+| Pentagon     | V=240, H=64  |
+| Lviv         | V=248, H=160 |
 
 INT stays active for one line unless acknowledged sooner. FLASH timing is
-independent. Changing the option affects future trigger positions and does not
-truncate an already active pulse.
+independent.
 
 
 ## Keyboard and layout preferences
 
 Below 761 CSS pixels, the keyboard uses a compact 40-key Spectrum layout with
-Normal, CS, SS, Extended and Extended + SS selectors. Modifiers apply to held virtual
-keys; Extended sends CS+SS for two emulated frames before the unshifted key.
-Extended + SS holds Symbol Shift with the final key and shows its matching legends.
-Release cancels the sequence. Physical keyboard mappings remain unchanged.
-Desktop widths retain the selected host keyboard layout.
+three toggles: **CS**, **SS** and **Extended**. All off means normal typing.
+Tap CS then SS, or SS then CS, to enter Extended with both shifts cleared.
+In Extended, SS toggles Symbol Shift for the final key; CS leaves Extended
+and selects Caps Shift. The Extended button turns Extended on or off and
+clears both shifts. Each virtual key press uses the current selection; changing
+a toggle leaves already-held keys unchanged. Extended sends CS+SS for two
+emulated frames before the selected key. Releasing the key cancels the sequence.
+Physical keyboard mappings remain unchanged. Desktop widths retain the selected
+host keyboard layout.
 
 Keyboard color can follow the page theme or remain Light/Dark independently.
 Color and section collapsed/expanded states persist in this browser. Actions

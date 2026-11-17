@@ -1,6 +1,6 @@
 /** biome-ignore-all lint/a11y/noNoninteractiveTabindex: The keyboard surface intentionally owns physical keyboard input; individual keycaps are not focus targets. */
 
-import { For, onCleanup } from "solid-js";
+import { createEffect, For, onCleanup } from "solid-js";
 import { CURSOR_MODES } from "../../input/kempstonInput";
 import {
   KEYBOARD_LAYOUTS,
@@ -155,53 +155,44 @@ function KeyboardSurface() {
 }
 export function KeyboardSection() {
   const store = useStore();
+  let keyboards!: HTMLDivElement;
+  const focusKeyboardSurface = () => {
+    const compact = window.matchMedia?.("(max-width: 760px)")?.matches;
+    keyboards
+      .querySelector<HTMLElement>(
+        compact ? ".compact-keyboard" : ".keyboard-surface",
+      )
+      ?.focus({ preventScroll: true });
+  };
+  const selectCursorMode = (mode: (typeof CURSOR_MODES)[number]) => {
+    store.kempston.setMode(mode);
+    focusKeyboardSurface();
+  };
+  createEffect(() => {
+    if (!store.keyboardFocusRequest()) return;
+    // A folded section must create its input surface before focus moves.
+    queueMicrotask(() => {
+      if (keyboards?.isConnected) focusKeyboardSurface();
+    });
+  });
   return (
     <SectionFrame
       title="Keyboard"
+      openRequest={store.keyboardFocusRequest()}
       subtitle={`${keyboardLayout(store.keyboardLayout()).label} · Spectrum legends`}
       defaultFolded={false}
     >
-      <div class="keyboard-toolbar">
-        <label>
-          Keyboard layout{" "}
-          <select
-            value={store.keyboardLayout()}
-            onChange={(event) =>
-              store.setKeyboardLayout(event.currentTarget.value)
-            }
-          >
-            <option value="auto">
-              Automatic · {keyboardLayout("auto").label}
-            </option>
-            <For each={KEYBOARD_LAYOUTS}>
-              {(layout) => <option value={layout.id}>{layout.label}</option>}
-            </For>
-          </select>
-        </label>
-        <span class="muted">
-          Control = Caps Shift · Alt / Option = Symbol Shift
-        </span>
-      </div>
-      <label class="setting-row">
-        <span>Keyboard color</span>
-        <select
-          value={store.keyboardColor()}
-          onChange={(event) =>
-            store.setKeyboardColor(
-              event.currentTarget.value as "theme" | "light" | "dark",
-            )
-          }
+      <div class="keyboard-content">
+        <div
+          ref={keyboards}
+          class="keyboard-colors"
+          data-keyboard-color={store.keyboardColor()}
         >
-          <option value="theme">Follow theme</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </label>
-      <div class="keyboard-colors" data-keyboard-color={store.keyboardColor()}>
-        <div class="desktop-keyboard">
-          <KeyboardSurface />
+          <div class="desktop-keyboard">
+            <KeyboardSurface />
+          </div>
+          <CompactKeyboard />
         </div>
-        <CompactKeyboard />
         <fieldset class="cursor-modes" aria-label="Cursor key mode">
           <legend>Cursor keys</legend>
           <For each={CURSOR_MODES}>
@@ -211,7 +202,7 @@ export function KeyboardSection() {
                   type="radio"
                   name="cursor-mode"
                   checked={store.kempston.mode() === mode}
-                  onChange={() => store.kempston.setMode(mode)}
+                  onChange={() => selectCursorMode(mode)}
                 />
                 <span>
                   {mode}
@@ -226,13 +217,51 @@ export function KeyboardSection() {
           </For>
         </fieldset>
         <p class="machine-note">Reset and Cold restart restore Cursor mode.</p>
+        <div class="keyboard-toolbar">
+          <label>
+            Keyboard layout{" "}
+            <select
+              value={store.keyboardLayout()}
+              onChange={(event) =>
+                store.setKeyboardLayout(event.currentTarget.value)
+              }
+            >
+              <option value="auto">
+                Automatic · {keyboardLayout("auto").label}
+              </option>
+              <For each={KEYBOARD_LAYOUTS}>
+                {(layout) => <option value={layout.id}>{layout.label}</option>}
+              </For>
+            </select>
+          </label>
+          <label>
+            Keyboard color{" "}
+            <select
+              value={store.keyboardColor()}
+              onChange={(event) =>
+                store.setKeyboardColor(
+                  event.currentTarget.value as "theme" | "light" | "dark",
+                )
+              }
+            >
+              <option value="theme">Follow theme</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+        </div>
+        <p class="machine-note">
+          <span>Control = Caps Shift · Alt / Option = Symbol Shift</span>
+          {" · "}
+          <span>Shift + letter = Caps Shift + letter</span>
+        </p>
+        <p id="keyboard-help" class="machine-note">
+          Click the screen or keyboard to type. Hold keys with mouse, touch, or
+          your keyboard. Cursor mode keeps Space and Return as normal Spectrum
+          keys. Ivory keys hold combinations: CS = Caps Shift, SS = Symbol
+          Shift. Layout choices are saved.
+        </p>
       </div>
-      <p id="keyboard-help" class="machine-note">
-        Click the screen or keyboard to type. Hold keys with mouse, touch, or
-        your keyboard. Cursor mode keeps Space and Return as normal Spectrum
-        keys. Ivory keys hold combinations: CS = Caps Shift, SS = Symbol Shift.
-        Layout choices are saved.
-      </p>
     </SectionFrame>
   );
 }

@@ -14,11 +14,41 @@ const keys: SpectrumKey[] = [
   "SYMBOL_SHIFT",
   "SPACE",
 ] as SpectrumKey[];
-const modes = ["Normal", "CS", "SS", "Extended", "Extended + SS"] as const;
+const modifiers = ["CS", "SS", "Extended"] as const;
+type Modifier = (typeof modifiers)[number];
+type Mode = "Normal" | Modifier | "Extended + SS";
 export function CompactKeyboard() {
   const store = useStore();
-  const [mode, setMode] = createSignal<(typeof modes)[number]>("Normal");
+  const [mode, setMode] = createSignal<Mode>("Normal");
   let surface!: HTMLDivElement;
+  const extended = () => mode() === "Extended" || mode() === "Extended + SS";
+  const selected = (modifier: Modifier) =>
+    modifier === "Extended"
+      ? extended()
+      : modifier === "SS"
+        ? mode() === "SS" || mode() === "Extended + SS"
+        : mode() === "CS";
+  const toggle = (modifier: Modifier) => {
+    setMode((current) => {
+      if (modifier === "Extended") return extended() ? "Normal" : "Extended";
+      if (modifier === "CS")
+        return current === "CS"
+          ? "Normal"
+          : current === "SS"
+            ? "Extended"
+            : "CS";
+      return current === "SS"
+        ? "Normal"
+        : current === "CS"
+          ? "Extended"
+          : current === "Extended"
+            ? "Extended + SS"
+            : current === "Extended + SS"
+              ? "Extended"
+              : "SS";
+    });
+    surface.focus({ preventScroll: true });
+  };
   const sources = new Set<number>();
   const release = (id: number) => {
     store.machine()?.keyboard.release(`compact:${id}`);
@@ -41,16 +71,18 @@ export function CompactKeyboard() {
       data-emulator-input="true"
     >
       <fieldset class="compact-modes" aria-label="Keyboard modifiers">
-        <For each={modes}>
+        <For each={modifiers}>
           {(item) => (
             <button
               type="button"
               tabIndex={-1}
-              aria-pressed={mode() === item}
-              onClick={() => {
-                setMode(item);
+              aria-pressed={selected(item)}
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
                 surface.focus({ preventScroll: true });
               }}
+              onClick={() => toggle(item)}
             >
               {item}
             </button>
@@ -105,7 +137,7 @@ export function CompactKeyboard() {
                   sources.add(event.pointerId);
                   const source = `compact:${event.pointerId}`;
                   if (
-                    (mode() === "Extended" || mode() === "Extended + SS") &&
+                    extended() &&
                     key !== "CAPS_SHIFT" &&
                     key !== "SYMBOL_SHIFT"
                   )
@@ -134,9 +166,10 @@ export function CompactKeyboard() {
         </For>
       </div>
       <p class="machine-note">
-        Modes apply while holding a key. Extended modes enter E mode first;
-        Extended + SS then holds Symbol Shift with the key. Hold briefly. Select
-        Normal to clear modifiers.
+        Tap an active modifier to turn it off. CS + SS selects Extended and
+        clears both shifts; then tap SS for shifted Extended keys. Extended
+        enters E mode before the next key; hold briefly. Turning it off clears
+        modifiers.
       </p>
     </div>
   );

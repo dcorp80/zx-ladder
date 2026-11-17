@@ -32,7 +32,13 @@ export const MachineSection: Component = () => {
             <button
               type="button"
               class="btn btn-accent"
-              onClick={() => (store.isRunning() ? store.pause() : store.run())}
+              onClick={() => {
+                if (store.isRunning()) store.pause();
+                else {
+                  store.run();
+                  if (store.isRunning()) store.focusKeyboard();
+                }
+              }}
               disabled={!store.machine()}
             >
               {store.isRunning() ? "Pause" : "Run"}

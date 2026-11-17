@@ -16,7 +16,6 @@ export interface AppConfig {
   freeRun: boolean;
   showTechnicalFields: boolean;
   showBorder: boolean;
-  lateInt: boolean;
   keyboardColor: "theme" | "light" | "dark";
   soundEnabled: boolean;
   volume: number;
@@ -53,11 +52,9 @@ export function sanitizeConfig(value: unknown): AppConfig {
     showTechnicalFields:
       typeof config.showTechnicalFields === "boolean"
         ? config.showTechnicalFields
-        : true,
+        : false,
     showBorder:
       typeof config.showBorder === "boolean" ? config.showBorder : true,
-    // Experimental timing is parked; discard previously persisted opt-ins.
-    lateInt: false,
     keyboardColor:
       config.keyboardColor === "light" || config.keyboardColor === "dark"
         ? config.keyboardColor

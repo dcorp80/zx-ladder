@@ -211,9 +211,6 @@ it("keeps a visible custom FLASH trigger resolved at each capture", () => {
     vBlank: [6, 7],
     vSync: [6, 7],
     interruptLine: 6,
-    lateInterruptLine: 6,
-    lateInterruptH: 0,
-    defaultLateInt: false,
     flashLine: 4,
     flashBit: 0,
   };

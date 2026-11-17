@@ -67,3 +67,28 @@ it("uses PC apostrophe and Mac double quote without changing held-source release
   pressHostKey(k, "key", "Quote", false, "", KEYBOARD_LAYOUT_ID);
   expect(k.isPressed("P")).toBe(true);
 });
+
+it.each(KEYBOARD_LAYOUTS)(
+  "maps Shift+letters to Caps Shift using physical codes on $label",
+  (layout) => {
+    const k = new KeyboardDevice();
+    for (const [code, letter, character] of [
+      ["KeyA", "A", "A"],
+      ["KeyZ", "Z", "z"], // Caps Lock may make Shift+Z report lowercase.
+      ["KeyQ", "Q", ""], // Shift-click has no host character.
+    ] as const) {
+      expect(pressHostKey(k, "letter", code, true, character, layout.id)).toBe(
+        true,
+      );
+      expect(k.isPressed(letter)).toBe(true);
+      expect(k.isPressed("CAPS_SHIFT")).toBe(true);
+      expect(k.isPressed("SYMBOL_SHIFT")).toBe(false);
+      k.release("letter");
+      expect(k.readRows(0)).toBe(31);
+    }
+    pressHostKey(k, "caps-lock-letter", "KeyA", false, "A", layout.id);
+    expect(k.isPressed("A")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(false);
+    expect(k.isPressed("SYMBOL_SHIFT")).toBe(false);
+  },
+);

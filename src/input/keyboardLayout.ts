@@ -129,6 +129,11 @@ export function pressHostKey(
     return true;
   }
   const mapped = character && SHIFT_CHARACTERS[character];
+  if (!mapped && shift && /^Key[A-Z]$/.test(code)) {
+    // Keep host punctuation mappings; own Caps Shift with each shifted letter.
+    keyboard.press(source, ["CAPS_SHIFT", code[3] as SpectrumKey]);
+    return true;
+  }
   const chord = mapped
     ? (["SYMBOL_SHIFT", mapped] as const)
     : hostMapping(code, layout);

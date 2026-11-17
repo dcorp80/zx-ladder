@@ -25,9 +25,6 @@ const preset: VideoPreset = {
   vBlank: [1, 2],
   vSync: [1, 2],
   interruptLine: 0,
-  lateInterruptLine: 0,
-  lateInterruptH: 0,
-  defaultLateInt: false,
   flashLine: 0,
   flashBit: 0,
 };

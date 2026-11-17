@@ -107,7 +107,6 @@ export interface MachineLike {
   readonly memoryMapping?: MemoryMapping;
   readonly active48kMode?: boolean;
   readonly hasFrame: boolean;
-  setLateInt(enabled: boolean): void;
   set48kMode?(enabled: boolean): void;
   setExtendedMode?(enabled: boolean): void;
   setShowTechnicalFields?(enabled: boolean): void;
@@ -158,7 +157,6 @@ export interface CreateStoreDeps {
     cpu7?: boolean;
     mode48k?: boolean;
     rtcEnabled?: boolean;
-    lateInt?: boolean;
     videoPreset?: VideoPreset;
   }) => MachineLike;
   hostLoopFactory?: (
@@ -211,6 +209,8 @@ export interface Store {
   unlockAudio(): void;
   readonly screenFocusRequest: Accessor<number>;
   focusScreen(): void;
+  readonly keyboardFocusRequest: Accessor<number>;
+  focusKeyboard(): void;
   readonly files: Accessor<LibraryFile[]>;
   readonly filesBusy: Accessor<boolean>;
   readonly filesMessage: Accessor<string>;
@@ -235,7 +235,6 @@ export interface Store {
   readonly freeRun: Accessor<boolean>;
   readonly showTechnicalFields: Accessor<boolean>;
   readonly showBorder: Accessor<boolean>;
-  readonly lateInt: Accessor<boolean>;
   readonly theme: Accessor<Theme>;
   readonly keyboardVersion: Accessor<number>;
   readonly keyboardLayout: Accessor<string>;
@@ -245,7 +244,6 @@ export interface Store {
   stepFrame(): void;
   coldBoot(): void;
   setVideoPreset(id: string): void;
-  setLateInt(enabled: boolean): void;
   set48kMode(enabled: boolean): void;
   setRtcEnabled(enabled: boolean): void;
   setTurbo(enabled: boolean): void;
@@ -399,6 +397,7 @@ export async function createAppStore(
       }
     };
     const [screenFocusRequest, setScreenFocusRequest] = createSignal(0);
+    const [keyboardFocusRequest, setKeyboardFocusRequest] = createSignal(0);
     const [machine, setMachine] = createSignal<MachineLike | null>(null);
     const kempston = new KempstonController(machine, config.kempston, () =>
       persistConfig(),
@@ -431,7 +430,6 @@ export async function createAppStore(
     const [rtcEnabled, setRtcEnabledSignal] = createSignal(config.rtcEnabled);
     const [turbo, setTurboSignal] = createSignal(config.turbo);
     const [freeRun, setFreeRunSignal] = createSignal(config.freeRun);
-    const [lateInt, setLateIntSignal] = createSignal(config.lateInt);
     const [showTechnicalFields, setShowTechnicalFieldsSignal] = createSignal(
       config.showTechnicalFields,
     );
@@ -503,7 +501,6 @@ export async function createAppStore(
           freeRun: freeRun(),
           showTechnicalFields: showTechnicalFields(),
           showBorder: showBorderPreference(),
-          lateInt: lateInt(),
           theme: theme(),
           keyboardLayout: keyboardLayout(),
           keyboardProfile: KEYBOARD_PROFILE_ID,
@@ -630,7 +627,6 @@ export async function createAppStore(
           cpu7: turbo(),
           mode48k: mode48k(),
           rtcEnabled: rtcEnabled(),
-          lateInt: lateInt(),
           videoPreset: videoPreset(),
         });
         next.setShowTechnicalFields?.(showTechnicalFields());
@@ -1000,6 +996,10 @@ export async function createAppStore(
       focusScreen() {
         if (machine()) setScreenFocusRequest((v) => v + 1);
       },
+      keyboardFocusRequest,
+      focusKeyboard() {
+        if (machine()) setKeyboardFocusRequest((v) => v + 1);
+      },
       files,
       filesBusy,
       filesMessage,
@@ -1153,12 +1153,6 @@ export async function createAppStore(
         persistConfig();
         refresh();
       },
-      lateInt,
-      setLateInt(_enabled: boolean) {
-        machine()?.setLateInt(false);
-        setLateIntSignal(false);
-        persistConfig();
-      },
       theme,
       keyboardVersion,
       keyboardLayout,
@@ -1257,8 +1251,6 @@ export async function createAppStore(
         if (active?.deferredVideoConfiguration) {
           active.setVideoPreset(next);
           setVideoPresetSignal(next);
-          active.setLateInt(next.defaultLateInt);
-          setLateIntSignal(next.defaultLateInt);
           persistConfig();
           refresh();
           return;
@@ -1267,9 +1259,6 @@ export async function createAppStore(
         try {
           active?.setVideoPreset(next);
           setVideoPresetSignal(next);
-          const defaultLate = next.defaultLateInt;
-          active?.setLateInt(defaultLate);
-          setLateIntSignal(defaultLate);
           persistConfig();
           // Recreate only the host pacing adapter, whose frame budget changed.
           stopLoop();

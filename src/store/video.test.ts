@@ -20,8 +20,9 @@ it("persists technical fields and restores the independent border preference", a
   try {
     const machine = store.machine();
     if (!machine) throw new Error("Expected initialized machine");
-    expect(store.showTechnicalFields()).toBe(true);
-    expect(machine.showTechnicalFields).toBe(true);
+    expect(store.showTechnicalFields()).toBe(false);
+    expect(machine.showTechnicalFields).toBe(false);
+    store.setShowTechnicalFields(true);
     store.setShowBorder(false);
     machine.advancePixels(13);
     store.setShowTechnicalFields(false);

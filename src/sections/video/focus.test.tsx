@@ -6,7 +6,7 @@ import { MemoryBackend } from "../../storage/memory";
 import { createAppStore, StoreProvider } from "../../store";
 import { makeFakeLoop, makeFakeMachine } from "../../test/fakes";
 
-it("focuses the screen after reset release and successful Load, reopening folded Video", async () => {
+it("keeps paused Reset focused and focuses the screen after successful Load, reopening folded Video", async () => {
   const machine = makeFakeMachine();
   machine.loadTape = vi.fn();
   const backend = new MemoryBackend({
@@ -40,30 +40,25 @@ it("focuses the screen after reset release and successful Load, reopening folded
     fireEvent.keyDown(reset, { key: "Enter", code: "Enter" });
     expect(reset).toHaveFocus();
     fireEvent.keyUp(reset, { key: "Enter", code: "Enter" });
-    await waitFor(() =>
-      expect(
-        view.getByRole("img", { name: "ZX Spectrum full raster" }),
-      ).toHaveFocus(),
-    );
-    const screen = view.getByRole("img", { name: "ZX Spectrum full raster" });
-    fireEvent.keyDown(screen, { key: "a", code: "KeyA" });
-    expect(machine.keyboard.isPressed("A")).toBe(true);
-    fireEvent.keyUp(screen, { key: "a", code: "KeyA" });
+    await Promise.resolve();
+    expect(reset).toHaveFocus();
     const fold = view.getByRole("button", { name: "Collapse Video" });
     fold.focus();
     fireEvent.click(fold);
-    expect(
-      view.queryByRole("img", { name: "ZX Spectrum full raster" }),
-    ).toBeNull();
+    expect(view.queryByRole("img", { name: "ZX Spectrum screen" })).toBeNull();
     const load = view.getByRole("button", { name: "Load" });
     load.focus();
     fireEvent.click(load);
     await waitFor(() =>
       expect(
-        view.getByRole("img", { name: "ZX Spectrum full raster" }),
+        view.getByRole("img", { name: "ZX Spectrum screen" }),
       ).toHaveFocus(),
     );
     expect(machine.loadTape).toHaveBeenCalledOnce();
+    const screen = view.getByRole("img", { name: "ZX Spectrum screen" });
+    fireEvent.keyDown(screen, { key: "a", code: "KeyA" });
+    expect(machine.keyboard.isPressed("A")).toBe(true);
+    fireEvent.keyUp(screen, { key: "a", code: "KeyA" });
     machine.loadTape = () => {
       throw new Error("Unsupported ROM");
     };

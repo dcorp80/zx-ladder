@@ -18,9 +18,6 @@ export interface VideoPreset {
   readonly vBlank: readonly [number, number];
   readonly vSync: readonly [number, number];
   readonly interruptLine: number;
-  readonly lateInterruptLine: number;
-  readonly lateInterruptH: number;
-  readonly defaultLateInt: boolean;
   readonly flashLine: number;
   readonly flashBit: number;
 }
@@ -44,9 +41,6 @@ export const PENTAGON_VIDEO_PRESET: VideoPreset = Object.freeze({
   vBlank: [240, 256] as const,
   vSync: [246, 248] as const,
   interruptLine: 240,
-  lateInterruptLine: 242,
-  lateInterruptH: 112,
-  defaultLateInt: false,
   flashLine: 240,
   flashBit: 4,
 });
@@ -70,9 +64,6 @@ export const LVIV_VIDEO_PRESET: VideoPreset = Object.freeze({
   vBlank: [240, 264] as const,
   vSync: [244, 248] as const,
   interruptLine: 248,
-  lateInterruptLine: 0, // V=312 wraps to zero.
-  lateInterruptH: 160,
-  defaultLateInt: false,
   flashLine: 240,
   flashBit: 4,
 });
@@ -92,8 +83,6 @@ export function validateVideoPreset(p: VideoPreset): void {
     p.vOrigin,
     p.vAdvance,
     p.interruptLine,
-    p.lateInterruptLine,
-    p.lateInterruptH,
     p.flashLine,
     p.flashBit,
     p.vPaperEnd,
@@ -115,10 +104,6 @@ export function validateVideoPreset(p: VideoPreset): void {
     p.vAdvance >= p.hLimit ||
     p.vOrigin < 0 ||
     p.vOrigin >= p.height ||
-    p.lateInterruptLine < 0 ||
-    p.lateInterruptLine >= p.height ||
-    p.lateInterruptH < p.hReload ||
-    p.lateInterruptH >= p.hLimit ||
     p.interruptLine < 0 ||
     p.interruptLine >= p.height ||
     p.flashLine < 0 ||

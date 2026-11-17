@@ -16,6 +16,9 @@ export function ResetButton() {
     keys.clear();
     update();
   };
+  const focusKeyboard = () => {
+    if (!pressed() && store.isRunning()) store.focusKeyboard();
+  };
   onMount(() => window.addEventListener("blur", release));
   onCleanup(() => {
     window.removeEventListener("blur", release);
@@ -39,7 +42,7 @@ export function ResetButton() {
         if (event.pointerId !== pointer) return;
         pointer = undefined;
         update();
-        if (!pressed()) store.focusScreen();
+        focusKeyboard();
       }}
       onPointerCancel={release}
       onLostPointerCapture={() => {
@@ -56,7 +59,7 @@ export function ResetButton() {
         if (!keys.delete(event.key)) return;
         event.preventDefault();
         update();
-        if (!pressed()) store.focusScreen();
+        focusKeyboard();
       }}
       onBlur={release}
       onClick={(event) => {
@@ -64,7 +67,7 @@ export function ResetButton() {
         if (event.detail === 0 && !pressed()) {
           store.setReset(true);
           store.setReset(false);
-          store.focusScreen();
+          focusKeyboard();
         }
       }}
     >

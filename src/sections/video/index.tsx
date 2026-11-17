@@ -209,19 +209,6 @@ export const VideoSection: Component = () => {
             <span>384×304 mode (EFF7 bit 6)</span>
           </label>
 
-          <label class="setting-row setting-check">
-            <input
-              type="checkbox"
-              checked={store.lateInt()}
-              disabled
-              title="Experimental timing disabled pending investigation"
-              onChange={(event) =>
-                store.setLateInt(event.currentTarget.checked)
-              }
-            />
-            <span>Late INT</span>
-          </label>
-
           <dl class="machine-status" aria-live="polite">
             <div title="Measured emulation FPS, updated every 16 completed frames">
               <dt>FPS</dt>

@@ -37,7 +37,6 @@ function harness(rawFrames = false) {
     preset: PENTAGON_VIDEO_PRESET,
     turbo: false,
     rawFrames,
-    lateInt: false,
   });
   const ticks = () =>
     messages.reduce(
@@ -158,7 +157,6 @@ it("grows compact frame buffers for event-heavy frames and reuses their capacity
       preset: PENTAGON_VIDEO_PRESET,
       turbo: false,
       rawFrames: true,
-      lateInt: false,
     });
     h.send({ type: "step" });
     const first = h.messages.findLast((m) => m.type === "frame") as Extract<
@@ -349,7 +347,6 @@ it("applies 48K mode on worker initialization and reset without clearing RAM", (
       rom: firmware,
       preset: PENTAGON_VIDEO_PRESET,
       turbo: false,
-      lateInt: false,
       mode48k: true,
     });
     expect(initialized.state?.memoryMapping).toEqual(fixed48k);
@@ -448,7 +445,6 @@ it("defers host video changes to the next frame while running", () => {
     const pending = h.send({ type: "extendedMode", value: true });
     expect(pending.state?.framePosition).toBe(100);
     expect(pending.state?.extendedMode).toBe(false);
-    h.send({ type: "lateInt", value: true });
     vi.advanceTimersByTime(80);
     const state = h.send({ type: "inspect", address: 0, length: 0 }).state;
     expect(state?.extendedMode).toBe(true);
@@ -504,7 +500,6 @@ it.each([false, true])(
           preset,
           turbo: false,
           rawFrames: raw,
-          lateInt: false,
         });
         for (let frame = 1; frame <= 16; frame++) {
           h.send({ type: "step" });

@@ -34,6 +34,7 @@ it("reuses ImageData and uploads only changed completed frames or presentation s
     },
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.setShowTechnicalFields(true);
   const view = render(() => (
     <StoreProvider value={store}>
       <VideoSection />
@@ -139,6 +140,7 @@ it.each([PENTAGON_VIDEO_PRESET, LVIV_VIDEO_PRESET])(
       hostLoopFactory: () => makeFakeLoop(),
     });
     store.setVideoPreset(preset.id);
+    store.setShowTechnicalFields(true);
     const view = render(() => (
       <StoreProvider value={store}>
         <VideoSection />
@@ -221,6 +223,7 @@ it("locks the border on for the cropped screen and restores normal and extended 
     machineFactory: () => machine,
     hostLoopFactory: () => makeFakeLoop(),
   });
+  store.setShowTechnicalFields(true);
   const view = render(() => (
     <StoreProvider value={store}>
       <VideoSection />

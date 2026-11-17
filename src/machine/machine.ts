@@ -40,7 +40,6 @@ export interface MachineOptions {
   cpu7?: boolean;
   mode48k?: boolean;
   rtcEnabled?: boolean;
-  lateInt?: boolean;
   videoPreset?: VideoPreset;
   devices?: readonly Device[];
   videoFactory?: (videoPreset: VideoPreset) => RasterVideo;
@@ -168,7 +167,6 @@ export class Machine implements ClockContext {
     return ticks;
   }
   private turbo: boolean;
-  private lateInterrupt: boolean;
   private interruptPosition = 0;
   private flashPosition = 0;
   private sampledInterrupt = false;
@@ -224,7 +222,6 @@ export class Machine implements ClockContext {
         }));
     this.technicalFields = options.showTechnicalFields ?? true;
     this.turbo = options.cpu7 ?? false;
-    this.lateInterrupt = options.lateInt ?? this.videoPreset.defaultLateInt;
     this.requestedTurbo = this.turbo;
     this.mode48k = options.mode48k ?? false;
     this.memory = new BankedMemory(options.rom);
@@ -341,7 +338,6 @@ export class Machine implements ClockContext {
     this.videoPreset = preset;
     this.timing = rasterTiming(preset);
     this.video = video;
-    this.lateInterrupt = preset.defaultLateInt;
     this.updateInterruptPosition();
     this.bus = bus;
     this.clocks = clocks;
@@ -365,10 +361,6 @@ export class Machine implements ClockContext {
   get hasFrame(): boolean {
     return this.video.hasFrame;
   }
-  setLateInt(enabled: boolean): void {
-    this.lateInterrupt = enabled;
-    this.updateInterruptPosition();
-  }
   /** Resolve counter wiring once, including V advance within a raster line. */
   private positionForCounter(line: number, x: number): number {
     const { width, height } = this.videoPreset;
@@ -380,10 +372,8 @@ export class Machine implements ClockContext {
   }
   private updateInterruptPosition(): void {
     const p = this.videoPreset;
-    const line = this.lateInterrupt ? p.lateInterruptLine : p.interruptLine;
-    const h = this.lateInterrupt ? p.lateInterruptH : p.vAdvance;
-    const x = ((h - p.hOrigin + p.width / 2) % (p.width / 2)) * 2;
-    this.interruptPosition = this.positionForCounter(line, x);
+    const x = ((p.vAdvance - p.hOrigin + p.width / 2) % (p.width / 2)) * 2;
+    this.interruptPosition = this.positionForCounter(p.interruptLine, x);
     this.flashPosition = this.positionForCounter(
       p.flashLine,
       this.video.advanceX,

@@ -28,7 +28,6 @@ export function makeFakeMachine(): MachineLike {
     cpuLoad: null,
     hasFrame: false,
     setReset(_pressed: boolean) {},
-    setLateInt(_enabled: boolean) {},
     setVideoPreset(preset: VideoPreset) {
       machine.videoPreset = preset;
       machine.timing = rasterTiming(preset);

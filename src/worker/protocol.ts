@@ -26,7 +26,6 @@ export type Command =
       turbo: boolean;
       /** Transfer completed capture planes for main-thread RGBA expansion. */
       rawFrames?: boolean;
-      lateInt: boolean;
     }
   | { type: "run"; value: boolean }
   | { type: "step"; pixels?: number }
@@ -40,7 +39,6 @@ export type Command =
         | "mode48k"
         | "rtcEnabled"
         | "reset"
-        | "lateInt"
         | "freeRun"
         | "visible"
         | "audio";

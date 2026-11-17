@@ -105,6 +105,112 @@ it("holds and releases shared shortcut modifiers without stealing other inputs",
   }
 });
 
+it("keeps each letter's initial Shift chord until keyup without treating Shift alone as Caps Shift", () => {
+  const k = new KeyboardDevice();
+  const surface = document.createElement("div");
+  surface.tabIndex = 0;
+  surface.dataset.emulatorInput = "true";
+  document.body.append(surface);
+  const detach = attachKeyboardInput(() => k);
+  const send = (
+    type: string,
+    code: string,
+    key: string,
+    shiftKey: boolean,
+    repeat = false,
+  ) => {
+    const event = new KeyboardEvent(type, {
+      code,
+      key,
+      shiftKey,
+      repeat,
+      bubbles: true,
+      cancelable: true,
+    });
+    surface.dispatchEvent(event);
+    return event;
+  };
+  try {
+    surface.focus();
+    expect(send("keydown", "ShiftLeft", "Shift", true).defaultPrevented).toBe(
+      false,
+    );
+    expect(k.isPressed("CAPS_SHIFT")).toBe(false);
+    send("keydown", "KeyA", "A", true);
+    expect(k.isPressed("A")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(true);
+    send("keyup", "ShiftLeft", "Shift", false);
+    send("keydown", "KeyA", "a", false, true);
+    expect(k.isPressed("A")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(true);
+    send("keyup", "KeyA", "a", false);
+    expect(k.readRows(0)).toBe(31);
+
+    // Pressing Shift after an already held letter must not remap its repeats.
+    send("keydown", "KeyB", "b", false);
+    send("keydown", "ShiftRight", "Shift", true);
+    send("keydown", "KeyB", "B", true, true);
+    expect(k.isPressed("B")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(false);
+    send("keyup", "ShiftRight", "Shift", false);
+    send("keyup", "KeyB", "b", false);
+
+    // Uppercase event.key without Shift belongs to the existing Caps Lock path.
+    send("keydown", "KeyA", "A", false);
+    expect(k.isPressed("A")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(false);
+    send("keyup", "KeyA", "A", false);
+    expect(k.readRows(0)).toBe(31);
+  } finally {
+    detach();
+    surface.remove();
+  }
+});
+
+it("releases shifted letters independently of other letters, Control and pointer Caps Shift", () => {
+  const k = new KeyboardDevice();
+  const surface = document.createElement("div");
+  surface.tabIndex = 0;
+  surface.dataset.emulatorInput = "true";
+  document.body.append(surface);
+  const detach = attachKeyboardInput(() => k);
+  const send = (type: string, code: string, shiftKey = false) =>
+    surface.dispatchEvent(
+      new KeyboardEvent(type, {
+        code,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  try {
+    surface.focus();
+    send("keydown", "KeyA", true);
+    send("keydown", "KeyB", true);
+    send("keyup", "KeyA");
+    expect(k.isPressed("A")).toBe(false);
+    expect(k.isPressed("B")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(true);
+    send("keyup", "KeyB");
+    expect(k.isPressed("CAPS_SHIFT")).toBe(false);
+
+    send("keydown", "ControlLeft");
+    k.press("pointer:42", "CAPS_SHIFT");
+    send("keydown", "KeyA", true);
+    send("keyup", "ControlLeft");
+    expect(k.isPressed("A")).toBe(true);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(true);
+    send("keyup", "KeyA");
+    expect(k.isPressed("A")).toBe(false);
+    expect(k.isPressed("CAPS_SHIFT")).toBe(true);
+    k.release("pointer:42");
+    expect(k.readRows(0)).toBe(31);
+  } finally {
+    detach();
+    surface.remove();
+  }
+});
+
 it("maps shifted symbols by host character and keeps the original chord until keyup", () => {
   const k = new KeyboardDevice();
   const surface = document.createElement("div");
@@ -149,12 +255,15 @@ it("maps shifted symbols by host character and keeps the original chord until ke
     ["Digit0", ")", "9"],
     // UK-style Shift+2 differs from the positional fallback.
     ["Digit2", '"', "P"],
+    // Some host layouts put punctuation on a physical letter key.
+    ["KeyM", "?", "C"],
   ] as const;
   try {
     surface.focus();
     for (const [code, character, key] of cases) {
       send("keydown", code, character, true);
       expect(k.isPressed("SYMBOL_SHIFT")).toBe(true);
+      expect(k.isPressed("CAPS_SHIFT")).toBe(false);
       expect(k.isPressed(key)).toBe(true);
       // Shift release and subsequent repeats cannot change an owned chord.
       send("keyup", "ShiftLeft", "Shift", false);
@@ -181,6 +290,7 @@ it("maps shifted symbols by host character and keeps the original chord until ke
       ["BracketLeft", "{", true, "F"],
       ["BracketRight", "}", true, "G"],
       ["IntlBackslash", "\\", false, "D"],
+      ["KeyA", "{", true, "F"],
     ] as const) {
       send("keydown", code, character, shift);
       expect(k.isPressed("CAPS_SHIFT")).toBe(true);

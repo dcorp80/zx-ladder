@@ -26,7 +26,6 @@ export class WorkerEngine {
   private border = true;
   private rawFrames = false;
   private pendingPreset?: VideoPreset;
-  private pendingLate?: boolean;
   private pendingExtended?: boolean;
   private applyVideoChanges(): void {
     const m = this.machine;
@@ -38,10 +37,6 @@ export class WorkerEngine {
       this.dirty = true;
       if (this.frameBuffer)
         this.frameBuffer = new Uint8ClampedArray(this.frameBytes());
-    }
-    if (this.pendingLate !== undefined) {
-      m.setLateInt(this.pendingLate);
-      this.pendingLate = undefined;
     }
     if (this.pendingExtended !== undefined) {
       m.setExtendedMode(this.pendingExtended);
@@ -160,7 +155,6 @@ export class WorkerEngine {
       advancePixels: (count: number) => {
         const pending =
           this.pendingPreset !== undefined ||
-          this.pendingLate !== undefined ||
           this.pendingExtended !== undefined;
         const result = m.advancePixels(
           pending
@@ -269,7 +263,6 @@ export class WorkerEngine {
     this.epoch = epoch;
     if (c.type === "init") {
       this.pendingPreset = undefined;
-      this.pendingLate = undefined;
       this.pendingExtended = undefined;
       this.rawFrames = c.rawFrames ?? false;
       this.machine = createMachine({
@@ -278,7 +271,6 @@ export class WorkerEngine {
         rtcEnabled: c.rtcEnabled,
         videoPreset: c.preset,
         cpu7: c.turbo,
-        lateInt: c.lateInt,
       });
       this.frameBuffer = new Uint8ClampedArray(this.frameBytes());
       this.machine.setPcmSink((samples, frames, sampleRate) => {
@@ -309,20 +301,14 @@ export class WorkerEngine {
           else this.loop?.pause();
           if (
             !c.value &&
-            (this.pendingPreset ||
-              this.pendingLate !== undefined ||
-              this.pendingExtended !== undefined)
+            (this.pendingPreset || this.pendingExtended !== undefined)
           )
             this.applyVideoChanges();
           break;
         case "step":
           this.running = false;
           this.loop?.pause();
-          if (
-            this.pendingPreset ||
-            this.pendingLate !== undefined ||
-            this.pendingExtended !== undefined
-          )
+          if (this.pendingPreset || this.pendingExtended !== undefined)
             this.applyVideoChanges();
           if (c.pixels === undefined) m.advanceFrame();
           else m.advancePixels(c.pixels);
@@ -367,14 +353,6 @@ export class WorkerEngine {
           break;
         case "reset":
           m.setReset(c.value);
-          break;
-        case "lateInt":
-          if (this.running && m.framePosition !== 0) {
-            this.pendingLate = c.value;
-            break;
-          }
-          this.pendingLate = undefined;
-          m.setLateInt(c.value);
           break;
         case "freeRun":
           this.freeRun = c.value;

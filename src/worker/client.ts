@@ -175,7 +175,7 @@ export class WorkerMachine implements MachineLike {
   constructor(
     options: Pick<
       MachineOptions,
-      "rom" | "cpu7" | "lateInt" | "videoPreset" | "mode48k" | "rtcEnabled"
+      "rom" | "cpu7" | "videoPreset" | "mode48k" | "rtcEnabled"
     >,
   ) {
     this.videoPreset = options.videoPreset ?? PENTAGON_VIDEO_PRESET;
@@ -201,7 +201,6 @@ export class WorkerMachine implements MachineLike {
       preset: this.videoPreset,
       turbo: this.cpu7,
       rawFrames: true,
-      lateInt: options.lateInt ?? false,
     });
     document.addEventListener("visibilitychange", this.visibility);
     this.fire({ type: "visible", value: !document.hidden });
@@ -416,9 +415,6 @@ export class WorkerMachine implements MachineLike {
       this.epoch++;
       this.fire({ type: "technicalFields", value });
     }
-  }
-  setLateInt(value: boolean): void {
-    this.fire({ type: "lateInt", value });
   }
   set48kMode(value: boolean): void {
     this.fire({ type: "mode48k", value });

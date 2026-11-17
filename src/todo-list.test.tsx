@@ -66,8 +66,8 @@ describe("ZX Ladder shell", () => {
     expect(app.store.status().ticks).toBe(ticks);
     expect(app.store.status().height).toBe(312);
     expect(
-      app.mounted.getByRole("img", { name: "ZX Spectrum full raster" }),
-    ).toHaveAttribute("height", "312");
+      app.mounted.getByRole("img", { name: "ZX Spectrum screen" }),
+    ).toHaveAttribute("height", "288");
     app.store.pause();
     app.store.setVideoPreset("pentagon");
     expect(app.store.isRunning()).toBe(false);
