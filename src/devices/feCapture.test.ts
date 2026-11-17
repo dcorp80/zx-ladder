@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { SoundMixer } from "../audio/mixer";
+import { DEFAULT_SOUND, SoundMixer } from "../audio/mixer";
 import { BeeperResampler } from "../audio/resampler";
 import { DeviceBus } from "../machine/devices";
 import { IO_EVENT_CAPACITY } from "../machine/ioCapture";
@@ -134,6 +134,7 @@ it.each([44100, 48000, 96000])(
   (rate) => {
     const m = new SoundMixer(false);
     m.setSampleRate(rate);
+    m.configure(DEFAULT_SOUND);
     const reference = new BeeperResampler(rate);
     const result: number[] = [];
     m.setSink((pcm, frames) => {
@@ -153,7 +154,7 @@ it.each([44100, 48000, 96000])(
           filtered +=
             (1 - Math.exp((-2 * Math.PI * Math.min(8000, rate * 0.4)) / rate)) *
             (sample - filtered);
-          expected.push(filtered * 0.2);
+          expected.push(filtered * DEFAULT_SOUND.beeperVolume);
         }
         m.consume(batch);
       });

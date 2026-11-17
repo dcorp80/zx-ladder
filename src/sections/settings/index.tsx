@@ -7,8 +7,18 @@ const themes: Theme[] = ["system", "light", "dark"];
 export const SettingsSection: Component = () => {
   const store = useStore();
   return (
-    <SectionFrame title="Settings" subtitle="Appearance" defaultFolded={false}>
+    <SectionFrame title="Settings" subtitle="Preferences" defaultFolded={false}>
       <div class="settings-grid">
+        <label class="setting-row setting-check">
+          <input
+            type="checkbox"
+            checked={store.jumpToScreen()}
+            onChange={(event) =>
+              store.setJumpToScreen(event.currentTarget.checked)
+            }
+          />
+          <span>Jump to screen on media Run</span>
+        </label>
         <div class="setting-row theme-setting">
           <span>Theme</span>
           <fieldset class="theme-toggle" aria-label="Theme">

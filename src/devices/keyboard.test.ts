@@ -104,7 +104,7 @@ it.each([false, true])(
     const m = createMachine({ rom, cpu7 });
     m.keyboard.press("host:KeyA", "A");
     m.advancePixels(200);
-    expect(m.memory.read(0x8000)).toBe(0x1e);
+    expect(m.memory.read(0x8000)).toBe(0xbe);
     expect(m.cpu.bus.nHALT).toBe(0);
   },
 );
@@ -149,16 +149,16 @@ it("paces extended mode on machine frames and preserves independently held modif
   k.releaseAll();
 });
 
-it("grounds FE upper bits without changing keyboard rows or unclaimed ports", () => {
+it("reads idle FE as BF with EAR low, preserving keyboard rows and unclaimed ports", () => {
   const m = createMachine({ rom: new Uint8Array(16384) });
-  expect(m.bus.readIo(0xfffe)).toBe(0x1f);
-  expect(m.bus.readIo(0x00fc)).toBe(0x1f);
+  expect(m.bus.readIo(0xfffe)).toBe(0xbf);
+  expect(m.bus.readIo(0x00fc)).toBe(0xbf);
   m.keyboard.press("test", "A");
-  expect(m.bus.readIo(0xfdfe)).toBe(0x1e);
-  expect(m.bus.readIo(0xfffe)).toBe(0x1f);
+  expect(m.bus.readIo(0xfdfe)).toBe(0xbe);
+  expect(m.bus.readIo(0xfffe)).toBe(0xbf);
   expect(m.bus.readIo(0xffff)).toBe(0xff);
   m.setVideoPreset(m.videoPreset);
-  expect(m.bus.readIo(0xfdfe)).toBe(0x1e);
+  expect(m.bus.readIo(0xfdfe)).toBe(0xbe);
 });
 
 it("enters extended mode before an unshifted mobile key and cancels on release", () => {

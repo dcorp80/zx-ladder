@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fireEvent, render, waitFor } from "@solidjs/testing-library";
 import { expect, it, vi } from "vitest";
+import { fileId } from "../../files/library";
 import { createMachine, type Machine } from "../../machine/machine";
 import { MemoryBackend } from "../../storage/memory";
 import { createAppStore, StoreProvider } from "../../store";
@@ -15,6 +16,23 @@ const file = (name: string, bytes: Uint8Array) =>
     size: bytes.length,
     arrayBuffer: async () => bytes.slice().buffer,
   }) as File;
+async function seedMedia(
+  backend: MemoryBackend,
+  name: string,
+  bytes: Uint8Array,
+) {
+  await backend.putFiles([
+    {
+      id: fileId(null, name),
+      name,
+      bytes,
+      group: null,
+      size: bytes.length,
+      updatedAt: 0,
+      warning: "",
+    },
+  ]);
+}
 it("shows catalog, protects dirty deletion, retains media on cold boot and persists independent ROM", async () => {
   const backend = new MemoryBackend({
     persistent: true,
@@ -23,6 +41,7 @@ it("shows catalog, protects dirty deletion, retains media on cold boot and persi
       bytes: new Uint8Array(readFileSync("public/roms/48.rom")),
     },
   });
+  await seedMedia(backend, "test.trd", diskFixture());
   const store = await createAppStore({
     backend,
     machineFactory: createMachine,
@@ -37,7 +56,6 @@ it("shows catalog, protects dirty deletion, retains media on cold boot and persi
     </StoreProvider>
   ));
   try {
-    await store.importFiles([file("test.trd", diskFixture())]);
     const id = store.files()[0].id;
     await store.loadFile(id);
     expect(mounted.getByText("boot.B")).toBeInTheDocument();
@@ -121,12 +139,16 @@ it("reports ROM-required stops through the store and makes Run/Step explain the 
     </StoreProvider>
   ));
   try {
+    fireEvent.click(mounted.getByRole("button", { name: "Collapse TR-DOS" }));
     store.stepFrame();
     expect(store.disk()?.romRequired).toBe(true);
     expect(store.error()).toBe("You need to provide TR-DOS ROM");
     expect(mounted.getByRole("alert")).toHaveTextContent(
       "You need to provide TR-DOS ROM",
     );
+    expect(
+      mounted.getByRole("button", { name: "Collapse TR-DOS" }),
+    ).toHaveAttribute("aria-expanded", "true");
     const position = store.machine()?.framePosition;
     store.clearError();
     store.run();
@@ -147,12 +169,14 @@ it("reports ROM-required stops through the store and makes Run/Step explain the 
 });
 
 it("loads an SCL as writable TRD and downloads TRD without modifying its library original", async () => {
+  const original = sclFixture();
   const backend = new MemoryBackend({
     initial: {
       name: "48.rom",
       bytes: new Uint8Array(readFileSync("public/roms/48.rom")),
     },
   });
+  await seedMedia(backend, "original.scl", original);
   const store = await createAppStore({
     backend,
     machineFactory: createMachine,
@@ -161,12 +185,10 @@ it("loads an SCL as writable TRD and downloads TRD without modifying its library
   store.set48kMode(true);
   store.setReset(true);
   store.setReset(false);
-  const original = sclFixture();
   let downloaded = "",
     downloadSize = 0;
   const NativeURL = URL;
   try {
-    await store.importFiles([file("original.scl", original)]);
     const id = store.files()[0].id;
     await store.loadFile(id);
     const m = store.machine() as Machine;

@@ -1,30 +1,36 @@
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  Index,
-  on,
-  Show,
-} from "solid-js";
+import { createMemo, Index, Show } from "solid-js";
 import { useStore } from "../../store";
 import { SectionFrame } from "../frame";
 
 export function TapeSection() {
   const store = useStore();
-  const [open, setOpen] = createSignal(0);
   const catalog = createMemo(() => store.tape()?.catalog ?? []);
   const mountedName = createMemo(() => store.tape()?.name);
+  const headerRun = createMemo(() => {
+    const runnable = catalog().filter((block) => block.runnable);
+    return runnable.length === 1 ? runnable[0] : undefined;
+  });
   const cursor = () => store.tape()?.cursor ?? 0;
-  createEffect(
-    on(mountedName, () => {
-      if (store.tape()?.name) setOpen((n) => n + 1);
-    }),
-  );
   return (
     <SectionFrame
       title="Tape"
-      subtitle="TAP / TZX · flash loading"
-      openRequest={open()}
+      subtitle={mountedName() ?? "TAP / TZX · flash loading"}
+      actions={
+        <Show when={headerRun()}>
+          {(block) => (
+            <button
+              class="btn"
+              type="button"
+              aria-label="Run tape"
+              title="Reset and run this BASIC program"
+              disabled={store.filesBusy()}
+              onClick={() => void store.runTape(block().index)}
+            >
+              Run
+            </button>
+          )}
+        </Show>
+      }
     >
       <div class="media-content">
         <Show
@@ -35,7 +41,6 @@ export function TapeSection() {
             </p>
           }
         >
-          <p class="media-name">{store.tape()?.name}</p>
           <div class="media-actions">
             <button
               class="btn"

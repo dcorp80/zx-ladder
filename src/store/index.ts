@@ -212,6 +212,7 @@ export interface Store {
   setVolume(value: number): void;
   unlockAudio(): void;
   readonly screenFocusRequest: Accessor<number>;
+  readonly screenScrollRequest: Accessor<number>;
   focusScreen(): void;
   readonly keyboardFocusRequest: Accessor<number>;
   focusKeyboard(): void;
@@ -239,6 +240,8 @@ export interface Store {
   readonly freeRun: Accessor<boolean>;
   readonly showTechnicalFields: Accessor<boolean>;
   readonly showBorder: Accessor<boolean>;
+  readonly jumpToScreen: Accessor<boolean>;
+  setJumpToScreen(enabled: boolean): void;
   readonly theme: Accessor<Theme>;
   readonly keyboardVersion: Accessor<number>;
   readonly keyboardLayout: Accessor<string>;
@@ -386,6 +389,7 @@ export async function createAppStore(
       const selected = batch.files.filter(
         (f) => !existing.has(f.id) || replaceIds.includes(f.id),
       );
+      let autoLoad: string | undefined;
       try {
         await backend.putFiles(selected);
         setFiles(await backend.listFiles());
@@ -394,13 +398,17 @@ export async function createAppStore(
           `${selected.length - replaced} added, ${replaced} replaced, ${batch.files.length - selected.length} skipped. ${batch.messages.join("; ")}${backend.persistent ? "" : " Session-only storage."}`,
         );
         setPendingImport(null);
+        if (batch.files.length === 1 && selected.length === 1)
+          autoLoad = selected[0].id;
       } catch (cause) {
         setError(messageForError(cause, "Files could not be saved."));
       } finally {
         setFilesBusy(false);
       }
+      if (autoLoad && machine()) await store.loadFile(autoLoad);
     };
     const [screenFocusRequest, setScreenFocusRequest] = createSignal(0);
+    const [screenScrollRequest, setScreenScrollRequest] = createSignal(0);
     const [keyboardFocusRequest, setKeyboardFocusRequest] = createSignal(0);
     const [machine, setMachine] = createSignal<MachineLike | null>(null);
     const kempston = new KempstonController(machine, config.kempston, () =>
@@ -440,6 +448,14 @@ export async function createAppStore(
     const [showBorderPreference, setShowBorderPreference] = createSignal(
       config.showBorder,
     );
+    const [jumpToScreen, setJumpToScreenSignal] = createSignal(
+      config.jumpToScreen,
+    );
+    const presentRunningMedia = () => {
+      if (!isRunning()) return;
+      if (jumpToScreen()) setScreenScrollRequest((value) => value + 1);
+      store.focusKeyboard();
+    };
     const showBorder = () => !showTechnicalFields() || showBorderPreference();
     const [keyboardVersion, setKeyboardVersion] = createSignal(0);
     const [keyboardLayout, setKeyboardLayoutSignal] = createSignal(
@@ -512,6 +528,7 @@ export async function createAppStore(
           freeRun: freeRun(),
           showTechnicalFields: showTechnicalFields(),
           showBorder: showBorderPreference(),
+          jumpToScreen: jumpToScreen(),
           theme: theme(),
           keyboardLayout: keyboardLayout(),
           keyboardProfile: KEYBOARD_PROFILE_ID,
@@ -827,7 +844,7 @@ export async function createAppStore(
           audio.reset();
           setError(null);
           store.run();
-          store.focusScreen();
+          presentRunningMedia();
         } catch (cause) {
           setError(messageForError(cause, "Tape Run failed."));
         } finally {
@@ -902,7 +919,7 @@ export async function createAppStore(
           await machine()?.runDisk?.(index, drive);
           setError(null);
           store.run();
-          store.focusScreen();
+          presentRunningMedia();
           refresh();
         } catch (cause) {
           setError(messageForError(cause, "Disk Run failed."));
@@ -1016,6 +1033,7 @@ export async function createAppStore(
         persistConfig();
       },
       screenFocusRequest,
+      screenScrollRequest,
       focusScreen() {
         if (machine()) setScreenFocusRequest((v) => v + 1);
       },
@@ -1132,8 +1150,9 @@ export async function createAppStore(
             if (!trdBoot(active.diskState?.catalog ?? [])) return;
           } else await active.loadTape(file.bytes, file.name);
           if (active !== machine()) return;
+          setError(null);
           store.run();
-          store.focusScreen();
+          presentRunningMedia();
         } catch (cause) {
           setError(messageForError(cause, "Load failed."));
         } finally {
@@ -1148,6 +1167,11 @@ export async function createAppStore(
       error,
       frameVersion,
       isRunning,
+      jumpToScreen,
+      setJumpToScreen(enabled) {
+        setJumpToScreenSignal(enabled);
+        persistConfig();
+      },
       fps,
       videoPreset,
       turbo,

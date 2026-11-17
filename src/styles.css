@@ -186,6 +186,7 @@ h1 {
 .section-subtitle {
   color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .section-actions {
@@ -485,23 +486,14 @@ h1 {
   color: var(--muted);
 }
 
-.storage-message {
+.rom-status {
   margin: 0;
-  padding: 7px 9px;
-  border-left: 3px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--fg);
+  color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
-.storage-message.is-warning {
-  border-color: var(--warning);
-  background: var(--warning-soft);
-}
-
-.storage-message.is-error {
-  border-color: var(--danger);
-  background: var(--danger-soft);
+.rom-status.is-error {
   color: var(--danger);
 }
 
@@ -818,24 +810,34 @@ h1 {
 .media-warning {
   font-weight: 600;
 }
+.media-header-drives,
+.media-header-drive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.media-header-drives {
+  gap: 8px 16px;
+}
+.media-header-name {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .media-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
-.media-content > :first-child,
-.media-content > input + .media-actions {
+.media-content > :first-child {
   margin-top: 0;
 }
 .media-status {
   color: var(--muted);
   font-size: 0.85rem;
-}
-.media-heading {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-  font-weight: 600;
 }
 .media-empty {
   color: var(--muted);
@@ -854,8 +856,6 @@ h1 {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-areas: "a b";
   gap: 1rem;
-  border-top: 1px solid var(--border);
-  padding-top: 1rem;
 }
 .disk-drive {
   min-width: 0;
@@ -865,19 +865,11 @@ h1 {
 }
 .disk-drive-b {
   grid-area: b;
-  border-left: 1px solid var(--border);
-  padding-left: 1rem;
 }
 @media (max-width: 760px) {
   .disk-drives {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "a" "b";
-  }
-  .disk-drive-b {
-    border-left: 0;
-    padding-left: 0;
-    border-top: 1px solid var(--border);
-    padding-top: 1rem;
   }
   .file-row {
     flex-wrap: wrap;

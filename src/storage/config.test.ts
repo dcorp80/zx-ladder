@@ -13,6 +13,8 @@ it("restores configuration and the saved ROM paused", async () => {
   expect(first.theme()).toBe("system");
   expect(first.videoPreset().id).toBe("pentagon");
   expect(first.showTechnicalFields()).toBe(false);
+  expect(first.jumpToScreen()).toBe(true);
+  first.setJumpToScreen(false);
   first.setVideoPreset("lviv");
   first.setTurbo(true);
   first.set48kMode(true);
@@ -43,6 +45,7 @@ it("restores configuration and the saved ROM paused", async () => {
     expect(fresh.keyboardLayout()).toBe("pc-full-size");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(fresh.isRunning()).toBe(false);
+    expect(fresh.jumpToScreen()).toBe(false);
     fresh.setTheme("system");
     expect(document.documentElement.dataset.theme).toBe("system");
     expect(loadConfig().theme).toBe("system");
@@ -57,6 +60,7 @@ it("validates persisted fields, malformed JSON, and future configuration version
   expect(defaults.theme).toBe("system");
   expect(defaults.videoPreset).toBe("pentagon");
   expect(defaults.showTechnicalFields).toBe(false);
+  expect(defaults.jumpToScreen).toBe(true);
   expect(defaults.mode48k).toBe(false);
   expect(sanitizeConfig({ version: 1, mode48k: true }).mode48k).toBe(true);
   expect(sanitizeConfig({ version: 1 }).showTechnicalFields).toBe(false);

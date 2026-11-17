@@ -16,6 +16,7 @@ export interface AppConfig {
   freeRun: boolean;
   showTechnicalFields: boolean;
   showBorder: boolean;
+  jumpToScreen: boolean;
   keyboardColor: "theme" | "light" | "dark";
   muted: boolean;
   masterVolume: number;
@@ -57,6 +58,8 @@ export function sanitizeConfig(value: unknown): AppConfig {
         : false,
     showBorder:
       typeof config.showBorder === "boolean" ? config.showBorder : true,
+    jumpToScreen:
+      typeof config.jumpToScreen === "boolean" ? config.jumpToScreen : true,
     keyboardColor:
       config.keyboardColor === "light" || config.keyboardColor === "dark"
         ? config.keyboardColor

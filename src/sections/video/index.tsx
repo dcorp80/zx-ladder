@@ -144,10 +144,16 @@ export const VideoSection: Component = () => {
       if (canvas?.isConnected) canvas.focus({ preventScroll: true });
     });
   });
+  createEffect(() => {
+    if (!store.screenScrollRequest()) return;
+    queueMicrotask(() => {
+      if (canvas?.isConnected) canvas.scrollIntoView?.({ block: "start" });
+    });
+  });
   return (
     <SectionFrame
       title="Video"
-      openRequest={store.screenFocusRequest()}
+      openRequest={store.screenFocusRequest() + store.screenScrollRequest()}
       subtitle={`${store.videoPreset().label} · ${viewport().width}×${viewport().height}`}
       defaultFolded={false}
     >

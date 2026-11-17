@@ -14,11 +14,11 @@ export const DEFAULT_SECTION_ORDER: SectionModule[] = [
   videoSection,
   keyboardSection,
   soundSection,
-  filesSection,
   tapeSection,
   trdosSection,
-  settingsSection,
+  filesSection,
   kempstonSection,
+  settingsSection,
 ];
 
 const REGISTRY = new Map(

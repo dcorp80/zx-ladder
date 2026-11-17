@@ -15,11 +15,12 @@ const pair = (first: number, second: number) => {
   return bytes;
 };
 async function setup(loadBundledRom?: CreateStoreDeps["loadBundledRom"]) {
+  const backend = new MemoryBackend({
+    initial: { name: "128.rom", bytes: pair(1, 2) },
+  });
   const store = await createAppStore({
     loadBundledRom,
-    backend: new MemoryBackend({
-      initial: { name: "128.rom", bytes: pair(1, 2) },
-    }),
+    backend,
     machineFactory: () => makeFakeMachine(),
     hostLoopFactory: () => makeFakeLoop(),
   });
@@ -28,7 +29,7 @@ async function setup(loadBundledRom?: CreateStoreDeps["loadBundledRom"]) {
       <RomControls />
     </StoreProvider>
   ));
-  return { store, view };
+  return { store, view, backend };
 }
 
 it("shows separate ROM slots and applies each slot's upload rules", async () => {
@@ -125,6 +126,23 @@ it("replaces bundled pages independently and disables ROM changes while busy", a
   } finally {
     finishDownload({ name: "48.rom", bytes: new Uint8Array(16384) });
     await waitFor(() => expect(store.filesBusy()).toBe(false));
+    view.unmount();
+    store.dispose();
+  }
+});
+
+it("shows routine ROM storage information quietly while keeping save failures visible", async () => {
+  const { store, view, backend } = await setup();
+  try {
+    const status = view.getByRole("status");
+    expect(status).toHaveClass("rom-status");
+    expect(status).not.toHaveClass("storage-message", "is-error");
+    vi.spyOn(backend, "saveRom").mockRejectedValue(new Error("Storage full"));
+    await store.importRom(new File([new Uint8Array(16384)], "custom.rom"), 1);
+    expect(status).toHaveClass("is-error");
+    expect(status).toHaveTextContent("Storage full");
+    expect(status).toHaveTextContent("session-only");
+  } finally {
     view.unmount();
     store.dispose();
   }

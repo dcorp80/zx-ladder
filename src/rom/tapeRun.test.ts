@@ -189,6 +189,25 @@ it("repeats Run without changing a program saved without autostart", () => {
   expect(m.memory.read(0x8000)).toBe(0);
 }, 30000);
 
+it("rewinds and cancels a pending selected Run without ejecting tape or releasing user keys", () => {
+  const m = createMachine({ rom: rom48 });
+  const image = basicTapFixture();
+  m.mountTape(new Uint8Array([...image, ...image]), "pending.tap");
+  const catalog = m.tapeState.catalog;
+  m.runTape(2);
+  expect(m.tapeState.cursor).toBe(2);
+  m.keyboard.press("user", "X");
+  m.setReset(true);
+  m.setReset(false);
+  expect(m.tapeState.cursor).toBe(0);
+  expect(m.tapeState.name).toBe("pending.tap");
+  expect(m.tapeState.catalog).toBe(catalog);
+  expect(m.keyboard.isPressed("X")).toBe(true);
+  for (let frame = 0; frame < 12; frame++) m.tape.frame();
+  expect(m.tape.status).toBe("Tape rewound; automatic loading cancelled.");
+  expect(m.keyboard.hasOtherSources("user")).toBe(false);
+});
+
 it.each(["reset", "seek", "eject"])(
   "clears the temporary autostart header on %s before loading",
   (action) => {

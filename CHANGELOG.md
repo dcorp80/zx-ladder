@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.7.0 — 2026-11-17
+
+### Added
+
+- Independent **ROM0** and **ROM1** file controls with saved source names.
+  First use loads the bundled 128K pair; bundled 48K replaces ROM1 only.
+  A saved **48K mode** selects ROM1 and locks paging on Reset or Cold boot,
+  independently of ROM imports. Keep both ROM pages installed in either mode.
+- Global **Mute** and master volume in the Sound header, accessible while folded.
+  Apply them to final audio output without changing emulated devices. AY is
+  available independently of ROM size and 48K mode; disabling it disconnects
+  its ports and silences its output while retaining chip state and time.
+- Automatic Load after successfully saving exactly one imported media file,
+  including the sole supported member of a ZIP. Disks use drive A and existing
+  boot/sole-BASIC selection. Multiple-media imports remain library-only; skipped
+  replacements and failed saves do not start loading.
+- Folded-header Run shortcuts for tapes with one runnable BASIC program and
+  each disk's boot or sole BASIC program, alongside mounted filenames.
+
+### Improved
+
+- Keep Run/Pause, Step frame, Reset and Cold boot in the Machine header. Allow
+  Cold boot while running and preserve the running/paused state and mounted
+  disks through cold boot and ROM replacement. Run and running Reset release
+  open and focus the visible keyboard; Pause and paused Reset leave focus alone.
+- Put the keyboard before cursor modes, layout/color selectors and legends.
+  Cursor-mode selection returns focus to the visible desktop or compact keyboard.
+  Host Shift plus a letter supplies Caps Shift plus that letter while preserving
+  punctuation mappings, Caps Lock behavior and independently held inputs.
+- Replace mobile mode selectors with CS, SS and Extended toggles. Selecting both
+  shifts in either order enters Extended; SS selects its shifted final key.
+  Keep existing extended-entry timing and already-held key ownership.
+- Start fresh preferences with Pentagon timing and technical fields hidden;
+  retain explicitly saved choices. Remove Late INT and the low-byte paging
+  override, retaining standard interrupt timing and 128K paging decoding.
+- Add saved **Jump to screen on media Run**, enabled by default. Successful
+  media Run/autorun can open Video and scroll to it while focusing the keyboard;
+  disabling the option preserves Video's folded state and prevents scrolling.
+- Preserve Tape/TR-DOS folding during media actions. Place them before Files,
+  keep Settings last, use matching drive/ROM panels and make routine ROM
+  persistence status less prominent.
+- Lower the fresh Beeper volume to 10%; AY remains 20% and master volume 100%.
+  Preserve existing saved levels, including earlier Beeper preferences.
+
+### Fixed
+
+- Correct FE input wiring so idle even-port reads return `BFh`: unused D5/D7
+  are high and EAR D6 is low, with keyboard switches still driving D0–D4.
+- Rewind the mounted user tape on Reset while cancelling automatic loading.
+  Internal disk-start resets retain the user's tape position.
+
 ## 0.6.0 — 2026-11-16
 
 ### Added

@@ -98,11 +98,11 @@ export const App: Component = () => {
         <VideoSection />
         <KeyboardSection />
         <SoundSection />
-        <FilesSection />
         <TapeSection />
         <TrdosSection />
-        <SettingsSection />
+        <FilesSection />
         <KempstonSection />
+        <SettingsSection />
       </div>
       <footer class="app-footer">
         <span>

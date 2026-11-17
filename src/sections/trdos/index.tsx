@@ -8,29 +8,19 @@ import {
   Show,
 } from "solid-js";
 import type { DiskDrive } from "../../devices/betaDisk";
+import { trdBoot } from "../../files/trd";
 import { useStore } from "../../store";
 import { SectionFrame } from "../frame";
 
 export function TrdosSection() {
   const store = useStore();
   const [open, setOpen] = createSignal(0);
-  const mountedIds = createMemo(() =>
-    store
-      .disks()
-      ?.map((disk) => disk.id)
-      .join("\n"),
-  );
   const needsRom = createMemo(() =>
     store.disks()?.some((disk) => disk.romRequired),
   );
   createEffect(
-    on([mountedIds, store.diskChangePending, needsRom], () => {
-      if (
-        store.disks()?.some((disk) => disk.id) ||
-        store.diskChangePending() ||
-        needsRom()
-      )
-        setOpen((n) => n + 1);
+    on([store.diskChangePending, needsRom], () => {
+      if (store.diskChangePending() || needsRom()) setOpen((n) => n + 1);
     }),
   );
   let input!: HTMLInputElement;
@@ -40,93 +30,61 @@ export function TrdosSection() {
       title="TR-DOS"
       subtitle="Beta Disk · drives A / B"
       openRequest={open()}
+      actions={
+        <div class="media-header-drives">
+          <For each={drives}>
+            {(drive) => {
+              const disk = () => store.disks()?.[drive];
+              const boot = createMemo(() => trdBoot(disk()?.catalog ?? []));
+              return (
+                <Show when={disk()?.id}>
+                  <div class="media-header-drive">
+                    <span class="media-header-name" title={disk()?.name}>
+                      {drive === 0 ? "A" : "B"}: {disk()?.name}
+                    </span>
+                    <Show when={boot()}>
+                      {(file) => (
+                        <button
+                          class="btn"
+                          type="button"
+                          aria-label={`Run drive ${drive === 0 ? "A" : "B"}`}
+                          disabled={
+                            store.filesBusy() ||
+                            (!store.dosRom() && !!file().warning)
+                          }
+                          title={!store.dosRom() ? file().warning : undefined}
+                          onClick={() =>
+                            void store.runDisk(file().index, drive)
+                          }
+                        >
+                          Run
+                        </button>
+                      )}
+                    </Show>
+                  </div>
+                </Show>
+              );
+            }}
+          </For>
+        </div>
+      }
     >
       <div class="media-content">
-        <input
-          ref={input}
-          hidden
-          type="file"
-          accept=".rom,.bin"
-          aria-label="Select TR-DOS ROM"
-          onChange={(e) => {
-            const file = e.currentTarget.files?.[0];
-            if (file) void store.importDosRom(file);
-            e.currentTarget.value = "";
-          }}
-        />
-        <div class="media-actions">
-          <button
-            class="btn"
-            type="button"
-            disabled={store.filesBusy()}
-            onClick={() => input.click()}
-          >
-            Select ROM…
-          </button>
-          <Show when={store.dosRom()}>
-            <button
-              class="btn"
-              type="button"
-              disabled={store.filesBusy()}
-              onClick={() => void store.removeDosRom()}
-            >
-              Remove ROM
-            </button>
-          </Show>
-        </div>
-        <p class="media-status" role="status">
-          {store.dosRom()?.name ?? "No TR-DOS ROM"} · {store.dosRomStatus()}
-        </p>
-        <Show when={needsRom()}>
-          <div class="media-notice">
-            <p role="alert">You need to provide TR-DOS ROM</p>
-            <p>
-              Choose a ROM, then press Retry. If it cannot continue, reset and
-              load again.
-            </p>
-            <div class="media-actions">
-              <button class="btn" type="button" onClick={() => input.click()}>
-                Provide ROM…
-              </button>
-              <button class="btn" type="button" onClick={() => store.run()}>
-                Retry
-              </button>
-              <button
-                class="btn"
-                type="button"
-                onClick={() => {
-                  store.setReset(true);
-                  store.setReset(false);
-                  store.run();
-                }}
-              >
-                Reset
-              </button>
-              <button
-                class="btn"
-                type="button"
-                onClick={() => store.coldBoot()}
-              >
-                Cold boot
-              </button>
-            </div>
-          </div>
-        </Show>
         <div class="disk-drives">
           <For each={drives}>
             {(drive) => {
               const label = drive === 0 ? "Drive A" : "Drive B";
               const disk = () => store.disks()?.[drive];
               return (
-                <section
-                  class="disk-drive"
+                <fieldset
+                  class="disk-drive rom-slot"
                   classList={{
                     "disk-drive-a": drive === 0,
                     "disk-drive-b": drive === 1,
                   }}
                   aria-label={label}
                 >
-                  <h3 class="media-heading">{label}</h3>
+                  <legend>{label}</legend>
                   <Show
                     when={disk()?.id}
                     fallback={
@@ -220,11 +178,89 @@ export function TrdosSection() {
                       </table>
                     </div>
                   </Show>
-                </section>
+                </fieldset>
               );
             }}
           </For>
         </div>
+        <div class="rom-controls">
+          <div class="rom-controls-heading">
+            <h3>TR-DOS ROM</h3>
+          </div>
+          <input
+            ref={input}
+            hidden
+            type="file"
+            accept=".rom,.bin"
+            aria-label="Select TR-DOS ROM"
+            onChange={(e) => {
+              const file = e.currentTarget.files?.[0];
+              if (file) void store.importDosRom(file);
+              e.currentTarget.value = "";
+            }}
+          />
+          <div class="rom-picker-row">
+            <span class="rom-name">
+              {store.dosRom()?.name ?? "No TR-DOS ROM"}
+            </span>
+            <button
+              class="btn"
+              type="button"
+              disabled={store.filesBusy()}
+              onClick={() => input.click()}
+            >
+              Select ROM…
+            </button>
+            <Show when={store.dosRom()}>
+              <button
+                class="btn"
+                type="button"
+                disabled={store.filesBusy()}
+                onClick={() => void store.removeDosRom()}
+              >
+                Remove ROM
+              </button>
+            </Show>
+          </div>
+          <p class="rom-status" role="status">
+            {store.dosRomStatus()}
+          </p>
+        </div>
+        <Show when={needsRom()}>
+          <div class="media-notice">
+            <p role="alert">You need to provide TR-DOS ROM</p>
+            <p>
+              Choose a ROM, then press Retry. If it cannot continue, reset and
+              load again.
+            </p>
+            <div class="media-actions">
+              <button class="btn" type="button" onClick={() => input.click()}>
+                Provide ROM…
+              </button>
+              <button class="btn" type="button" onClick={() => store.run()}>
+                Retry
+              </button>
+              <button
+                class="btn"
+                type="button"
+                onClick={() => {
+                  store.setReset(true);
+                  store.setReset(false);
+                  store.run();
+                }}
+              >
+                Reset
+              </button>
+              <button
+                class="btn"
+                type="button"
+                onClick={() => store.coldBoot()}
+              >
+                Cold boot
+              </button>
+            </div>
+          </div>
+        </Show>
         <Show when={store.diskChangePending()}>
           <div
             class="media-notice"

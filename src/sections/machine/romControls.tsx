@@ -83,10 +83,9 @@ export const RomControls: Component = () => {
           paused state is retained; 48K mode is unchanged.
         </p>
         <p
-          class="storage-message"
+          class="rom-status"
           classList={{
             "is-error": store.storage().state === "error",
-            "is-warning": store.storage().state === "session-only",
           }}
           role="status"
         >

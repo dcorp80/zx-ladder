@@ -157,12 +157,13 @@ it("roundtrips tape catalog and position without repeated catalog transfers or r
     // A rejected position must leave the current tape unchanged.
     await expect(machine.seekTape(99)).rejects.toThrow("Invalid tape");
     expect(machine.tapeState.cursor).toBe(1);
-    await machine.seekTape(0);
     machine.setReset(true);
     machine.setReset(false);
     await machine.inspectMemory(0, 0);
     expect(machine.tapeState.name).toBe("manual.tap");
     expect(machine.tapeState.cursor).toBe(0);
+    expect(machine.tapeState.catalog).toBe(catalog);
+    expect(machine.tapeState.status).toMatch(/rewound/);
     await expect(machine.runTape(1)).rejects.toThrow("Choose a BASIC program");
     await machine.runTape(0);
     expect(machine.tapeState.cursor).toBe(0);

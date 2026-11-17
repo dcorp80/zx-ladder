@@ -410,6 +410,9 @@ export class Machine implements ClockContext {
   }
   /** A press asserts immediately; even a brief tap spans six CPU edges. */
   setReset(pressed: boolean): void {
+    this.applyReset(pressed, true);
+  }
+  private applyReset(pressed: boolean, rewindUserTape: boolean): void {
     if (pressed && !this.resetHeld) {
       this.resetHalfCycles = 6;
       this.mcu.reset(this.mode48k ? 0x30 : 0);
@@ -420,7 +423,7 @@ export class Machine implements ClockContext {
       this.memory.dosRom = undefined;
       this.dos.reset();
       this.capsLock.reset();
-      this.tape.reset();
+      this.tape.reset(rewindUserTape);
       this.diskTape.reset();
       this.diskTapeActive = false;
     }
@@ -507,8 +510,9 @@ export class Machine implements ClockContext {
       (willReset ? !this.mode48k : (this.mcu.latch & 0x30) !== 0x30);
     parseTape(bytes, name, is128);
     if (willReset) {
-      this.setReset(true);
-      this.setReset(false);
+      // Disk autoload resets the CPU without moving the mounted user's tape.
+      this.applyReset(true, service === this.tape);
+      this.applyReset(false, service === this.tape);
     }
     if (service === this.diskTape) this.tape.cancel(false);
     service.mount(bytes, name);

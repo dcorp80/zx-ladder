@@ -408,9 +408,9 @@ it("decodes AY aliases using A15, A14 and A1, independently of paging", () => {
   }
   for (const port of [0xffff, 0xbfff, 0xc002, 0x8002]) {
     m.bus.writeIo(port, 0);
-    expect(m.bus.readIo(port)).toBe(port & 1 ? 255 : 0x1f);
+    expect(m.bus.readIo(port)).toBe(port & 1 ? 255 : 0xbf);
   }
   expect(m.ay?.registers[8]).toBe(15);
   expect(m.ay?.selectedRegister).toBe(8);
-  expect(m.bus.readIo(0xc000)).toBe(0x1f);
+  expect(m.bus.readIo(0xc000)).toBe(0xbf);
 });

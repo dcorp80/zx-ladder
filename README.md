@@ -5,17 +5,25 @@ Hardware-like ZX Spectrum emulator built with Solid and the half-cycle
 
 **[Run ZX Ladder in your browser](https://dcorp80.github.io/zx-ladder/)**
 
-Version **0.6.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
+Version **0.7.0** — see [CHANGELOG](CHANGELOG.md). The header displays the package
 version; hover over it to see the build commit.
 
-**New in 0.6.0: Tape controls and two TR-DOS drives.** Mount TAP/TZX images
-without resetting BASIC, inspect their blocks, select a position, rewind, eject,
-or Run a BASIC program. Mount TRD/SCL disks in drive A or B, each with its own
-catalog, Run, Eject and Download controls. Tape and TR-DOS share their table and
-action styling; narrow screens stack drive A above drive B.
+**New in 0.7.0: ROM slots, automatic media loading and master sound controls.**
+Manage ROM0 and ROM1 independently and choose a saved 48K startup mode. Machine
+controls remain available when folded, including Cold boot while running.
+Host Shift produces uppercase letters, and mobile CS/SS/Extended controls toggle.
 
-TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. Add a disk
-or ZIP in Files, then choose Mount A, Mount B, or Load for drive A autoload.
+Add or drop one supported media file, directly or inside a ZIP, to load it
+automatically. Media Run can jump to the screen while focusing the keyboard;
+disable jumping in Settings. Tape and TR-DOS keep their folded state and expose
+mounted names and eligible Run buttons in their headers. Reset rewinds tape.
+Sound gains header Mute/master volume controls, AY works in either memory mode,
+and fresh settings use 10% beeper volume. Pentagon with technical fields hidden
+is the default display.
+
+TR-DOS disks support basic TRD and SCL loading without a TR-DOS ROM. A single
+imported disk loads into A; Files also offers Mount A, Mount B, or Load for
+explicit media selection.
 [Disk support and compatibility](#tr-dos-disks).
 
 Use Node.js 24. Run `npm ci`, then `npm run dev` and open the local URL printed by Vite.
@@ -179,8 +187,8 @@ held keys. Layout and input preferences are saved, never pressed keys. Joystick 
 modes return to Cursor on Reset and Cold boot.
 
 Keyboard reads drive D0–D4 on even I/O addresses, with A8–A15 selecting
-active-low rows. Machine FE input wiring grounds D5–D7, so an idle even-port
-read returns `0x1F`; idle Kempston joystick reads return `0x00`, and unclaimed
+active-low rows. Machine FE input wiring holds unused D5/D7 high and EAR D6 low,
+so an idle even-port read returns `0xBF`; idle Kempston joystick reads return `0x00`, and unclaimed
 odd ports return `0xFF`. The bus supports disjoint read masks and explicit priority
 inhibition for shared ports. Ordinary CPU I/O reads and writes commit once on
 the qualified nIORQ transition. A general device/UI adapter registry remains
@@ -240,8 +248,8 @@ preset retains its double-quote mapping.
 
 ## Kempston mouse and joystick
 
-The **Kempston** section is last, below Settings. **Sound** sits directly below
-Keyboard. Both Kempston devices are inaccessible while DOS is active; the disk
+The **Kempston** section sits above **Settings**, which is last. **Sound** sits
+directly below Keyboard; **Files** follows Tape and TR-DOS. Both Kempston devices are inaccessible while DOS is active; the disk
 controller retains its ports.
 
 Below the keyboard, choose **Cursor**, **Sinclair I (67890)**,
@@ -289,16 +297,31 @@ only TAP/TZX/TRD/SCL members, grouped by archive name with full member paths. Re
 require confirmation. Archive reimports merge members; deleting a stored file
 does not alter a mounted tape. Deleting the mounted TRD or SCL also ejects it.
 
+After saving and any replacement confirmation, an Add/drop operation containing
+exactly one supported media file automatically uses **Load**. This includes a
+standalone file or the sole supported member of a ZIP; disks use drive A and the
+existing boot/sole-BASIC selection. Multiple media files are added to the library
+without choosing one. Skipped replacements and failed saves never start loading.
+
+Successful media Run and autorun open Video, scroll to the screen and focus the
+keyboard. **Jump to screen on media Run** in Settings defaults to checked;
+unchecking it stops the scroll and leaves Video's folded state alone, while
+keyboard focus still moves. Machine Run/resume does not scroll.
+
 For tapes, **Mount** inserts the selected TAP or TZX without resetting, running,
 or typing into the machine. Enter `LOAD ""` in BASIC to read it. The **Tape**
 section shows the mounted filename, Spectrum headers, data blocks, sizes,
 checksum warnings and the next block to read. **Select** positions the tape at
 that block; **Rewind** returns to the beginning, and **Eject** removes the mounted
-copy while retaining the stored file. Reset keeps the mounted tape and position;
+copy while retaining the stored file. Reset keeps the mounted tape and rewinds it;
 cold boot, ROM replacement and browser restart clear them. Disk startup uses a
 separate temporary tape and retains the mounted user tape. TZX catalogs show the
 resolved flash-load sequence, including repeated data blocks from loops, rather
 than waveform or metadata blocks.
+The header shows the mounted filename while folded and offers Run when the tape
+contains exactly one runnable BASIC program.
+Mounting, loading and Run preserve the Tape and TR-DOS sections' folded state.
+TR-DOS still opens for a modified-disk decision or a ROM-required recovery.
 
 **Run**, beside Select on complete BASIC programs, resets and starts loading
 from that program's header. It uses the mounted copy, even if the library file
@@ -359,8 +382,11 @@ The TR-DOS ROM is optional and is never bundled.
 Files offers **Mount A** and **Mount B** for TRD and SCL images. Mounting inserts
 the disk without resetting or starting the machine. Each drive has its own
 catalog, Run, Eject and Download TRD controls. The two drive panels sit side by
-side on wide screens; drive B appears below drive A on narrow screens. Tape and
+side in rounded panels on wide screens; drive B appears below drive A on narrow screens. Tape and
 TR-DOS use the same catalog typography, row dividers and action spacing.
+The folded header shows the mounted A/B filenames and a Run button for each drive
+with an eligible boot/sole-BASIC program. ROM selection and its quiet status note
+sit below the drive panels, matching the Spectrum ROM status presentation.
 
 **Load** retains the drive A autoload workflow: `boot.B`, or the sole BASIC file
 when no boot exists, runs automatically. Running a BASIC file in either drive

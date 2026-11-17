@@ -149,6 +149,26 @@ it("retains the mounted tape and position during internal disk startup", () => {
   expect(m.tapeState.cursor).toBe(1);
   expect(m.tapeState.catalog).toBe(catalog);
 });
+
+it("rewinds consumed tape on machine reset and reloads the same mounted image", () => {
+  const m = createMachine({ rom: fixture() });
+  m.mountTape(bytes, "reset.tap");
+  const catalog = m.tapeState.catalog;
+  m.advancePixels(1000);
+  expect(m.tapeState.cursor).toBe(1);
+  expect(m.memory.read(0x8000)).toBe(1);
+  m.memory.write(0x8000, 0);
+  m.setReset(true);
+  m.setReset(false);
+  expect(m.tapeState.cursor).toBe(0);
+  expect(m.tapeState.name).toBe("reset.tap");
+  expect(m.tapeState.catalog).toBe(catalog);
+  expect(m.tape.status).toBe("Tape rewound; automatic loading cancelled.");
+  expect(m.memory.read(0x8000)).toBe(0);
+  m.advancePixels(1000);
+  expect(m.tapeState.cursor).toBe(1);
+  expect(m.memory.read(0x8000)).toBe(1);
+});
 it.each([false, true])(
   "flashes through real bus cycles and CPU return, turbo=%s",
   (cpu7) => {

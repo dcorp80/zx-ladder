@@ -164,10 +164,13 @@ export class Spectrum48Tape {
     this.program = null;
     this.offset = 0;
   }
-  reset(): void {
+  reset(rewind = false): void {
     this.cancel();
+    if (rewind) this.cursor = 0;
     this.status = this.blocks
-      ? "Tape mounted; automatic loading cancelled."
+      ? rewind
+        ? "Tape rewound; automatic loading cancelled."
+        : "Tape mounted; automatic loading cancelled."
       : "No tape mounted.";
   }
   frame(): void {

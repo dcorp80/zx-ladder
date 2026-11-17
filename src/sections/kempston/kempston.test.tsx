@@ -7,7 +7,7 @@ import { createAppStore, StoreProvider } from "../../store";
 import { makeFakeLoop, makeFakeMachine } from "../../test/fakes";
 import { KempstonSection } from "./index";
 
-it("places Sound after Keyboard and Kempston last, restores Cursor and persists only preferences", async () => {
+it("places mounted media before Files and Settings last, restores Cursor and persists only preferences", async () => {
   const store = await createAppStore({
     backend: new MemoryBackend(),
     loadBundledRom: async () => ({
@@ -31,11 +31,11 @@ it("places Sound after Keyboard and Kempston last, restores Cursor and persists 
       "Video",
       "Keyboard",
       "Sound",
-      "Files",
       "Tape",
       "TR-DOS",
-      "Settings",
+      "Files",
       "Kempston",
+      "Settings",
     ]);
     expect(mounted.queryByLabelText("Enable gamepad")).toBeNull();
     expect(mounted.queryByLabelText("Gamepad", { exact: true })).toBeNull();
